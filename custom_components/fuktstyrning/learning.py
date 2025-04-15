@@ -41,6 +41,14 @@ class DehumidifierLearningModule:
             "hot": (25, 50)
         }
         
+        # Energy efficiency categories (Wh per % humidity)
+        self.efficiency_categories = {
+            "excellent": (0, 40),  # Less than 40 Wh to remove 1% humidity
+            "good": (40, 80),      # 40-80 Wh per % humidity
+            "average": (80, 120),   # 80-120 Wh per % humidity
+            "poor": (120, 999)     # More than 120 Wh per % humidity
+        }
+        
         # Load existing learning data
         self.load_learning_data()
 
@@ -89,6 +97,8 @@ class DehumidifierLearningModule:
                     self.controller.dehumidifier_data["temp_impact"] = data["temp_impact"]
                 if "humidity_diff_impact" in data:
                     self.controller.dehumidifier_data["humidity_diff_impact"] = data["humidity_diff_impact"]
+                if "energy_efficiency" in data:
+                    self.controller.dehumidifier_data["energy_efficiency"] = data["energy_efficiency"]
                     
                 _LOGGER.info("Loaded learning data from file")
         except Exception as e:
@@ -109,60 +119,60 @@ class DehumidifierLearningModule:
                 data["temp_impact"] = self.controller.dehumidifier_data["temp_impact"]
             if "humidity_diff_impact" in self.controller.dehumidifier_data:
                 data["humidity_diff_impact"] = self.controller.dehumidifier_data["humidity_diff_impact"]
+            if "energy_efficiency" in self.controller.dehumidifier_data:
+                data["energy_efficiency"] = self.controller.dehumidifier_data["energy_efficiency"]
                 
             with open(self.learning_data_file, "w") as f:
-                json.dump(data, f, indent=2)
+                json.dump(data, f)
                 
             _LOGGER.info("Saved learning data to file")
         except Exception as e:
             _LOGGER.error(f"Error saving learning data: {e}")
 
     def record_humidity_data(self, humidity, dehumidifier_on, temperature=None, weather=None, 
-                           outdoor_humidity=None, outdoor_temp=None):
+                           outdoor_humidity=None, outdoor_temp=None, power=None, energy=None):
         """Record current humidity data with context."""
         now = datetime.now()
         
-        # Calculate absolute humidity and dew point if possible
+        # Calculate absolute humidity if we have temperature
         abs_humidity = None
         dew_point = None
-        if humidity is not None and temperature is not None:
+        outdoor_abs_humidity = None
+        humidity_diff = None
+        
+        if temperature is not None:
             abs_humidity = self._calculate_absolute_humidity(humidity, temperature)
             dew_point = self._calculate_dew_point(humidity, temperature)
-            
-        outdoor_abs_humidity = None
-        outdoor_dew_point = None
+        
+        # Calculate outdoor absolute humidity
         if outdoor_humidity is not None and outdoor_temp is not None:
             outdoor_abs_humidity = self._calculate_absolute_humidity(outdoor_humidity, outdoor_temp)
-            outdoor_dew_point = self._calculate_dew_point(outdoor_humidity, outdoor_temp)
             
-        # Calculate humidity difference (indoor vs outdoor)
-        humidity_diff = None
-        abs_humidity_diff = None
-        if humidity is not None and outdoor_humidity is not None:
-            humidity_diff = outdoor_humidity - humidity
-            
-        if abs_humidity is not None and outdoor_abs_humidity is not None:
-            abs_humidity_diff = outdoor_abs_humidity - abs_humidity
+            # Calculate humidity difference (can be useful for predicting condensation risk)
+            if abs_humidity is not None:
+                humidity_diff = outdoor_abs_humidity - abs_humidity
         
+        # Create data point
         data_point = {
             "timestamp": now.isoformat(),
             "humidity": humidity,
             "dehumidifier_on": dehumidifier_on,
             "temperature": temperature,
+            "abs_humidity": abs_humidity,
+            "dew_point": dew_point,
             "weather": weather,
             "outdoor_humidity": outdoor_humidity,
             "outdoor_temp": outdoor_temp,
-            "abs_humidity": abs_humidity,
-            "dew_point": dew_point,
             "outdoor_abs_humidity": outdoor_abs_humidity,
-            "outdoor_dew_point": outdoor_dew_point,
             "humidity_diff": humidity_diff,
-            "abs_humidity_diff": abs_humidity_diff
+            "power": power,
+            "energy": energy
         }
         
+        # Add to data set
         self.humidity_data.append(data_point)
         
-        # Keep only last 1000 data points to prevent memory issues
+        # Keep the size reasonable (keep the most recent 1000 data points)
         if len(self.humidity_data) > 1000:
             self.humidity_data = self.humidity_data[-1000:]
 
@@ -205,31 +215,33 @@ class DehumidifierLearningModule:
 
     async def _perform_analysis(self, _now=None):
         """Analyze recorded data and update models."""
-        _LOGGER.info("Performing analysis of humidity data")
+        _LOGGER.info("Performing humidity learning analysis")
         
-        if len(self.humidity_data) < 10:
-            _LOGGER.info("Not enough data for analysis yet")
+        # Need some minimum amount of data for analysis
+        if len(self.humidity_data) < self.min_data_points_for_update:
+            _LOGGER.info(f"Not enough data points yet ({len(self.humidity_data)})")
             return
             
-        # Analyze humidity reduction rate when dehumidifier is on
+        # Analyze how humidity decreases when dehumidifier is on
         self._analyze_humidity_reduction()
         
-        # Analyze humidity increase rate when dehumidifier is off
+        # Analyze how humidity increases when dehumidifier is off
         self._analyze_humidity_increase()
         
-        # Analyze weather impact on humidity
+        # Analyze how weather affects humidity increase rate
         self._analyze_weather_impact()
         
-        # Analyze temperature impact on humidity
+        # Analyze how temperature affects humidity behavior
         self._analyze_temperature_impact()
         
-        # Analyze indoor-outdoor humidity difference impact
+        # Analyze how outdoor/indoor humidity difference affects increase rate
         self._analyze_humidity_difference_impact()
         
-        # Save updated learning data
-        self.save_learning_data()
+        # Analyze energy efficiency
+        self._analyze_energy_efficiency()
         
-        _LOGGER.info("Analysis complete, models updated")
+        # Save updated model to file
+        self.save_learning_data()
 
     def _analyze_humidity_reduction(self):
         """Analyze how fast humidity decreases when dehumidifier is on."""
@@ -483,6 +495,7 @@ class DehumidifierLearningModule:
                 if time_diff > 0 and abs(prev["humidity"] - curr["humidity"]) > 0:
                     # Calculate the rate of humidity change (absolute)
                     humidity_change_rate = abs(curr["humidity"] - prev["humidity"]) / time_diff
+                    
                     temp_humidity_data[temp_category].append(humidity_change_rate)
             except (ValueError, TypeError):
                 continue
@@ -609,6 +622,92 @@ class DehumidifierLearningModule:
                     self.controller.dehumidifier_data["humidity_diff_impact"][category] = round(new_value, 2)
                     _LOGGER.info(f"Updated humidity difference impact for {category}: {new_value:.2f}x")
 
+    def _analyze_energy_efficiency(self):
+        """Analyze energy efficiency during dehumidification."""
+        # Skip if no energy data is available
+        if not self.controller.energy_sensor:
+            return
+            
+        efficiency_data = {}
+        
+        # Find consecutive readings to calculate energy usage per % humidity reduction
+        for i in range(1, len(self.humidity_data)):
+            prev = self.humidity_data[i-1]
+            curr = self.humidity_data[i]
+            
+            # Need both points to have humidity and energy data
+            if (prev.get("humidity") is None or curr.get("humidity") is None or 
+                prev.get("energy") is None or curr.get("energy") is None or 
+                not prev.get("dehumidifier_on") or not curr.get("dehumidifier_on")):
+                continue
+                
+            try:
+                # Calculate humidity change
+                humidity_change = prev["humidity"] - curr["humidity"]
+                
+                # Only analyze when humidity was reduced
+                if humidity_change <= 0:
+                    continue
+                    
+                # Calculate energy used
+                energy_used = curr["energy"] - prev["energy"]
+                if energy_used <= 0:
+                    continue
+                    
+                # Calculate efficiency (Wh per % humidity)
+                efficiency = energy_used / humidity_change
+                
+                # Categorize the efficiency
+                efficiency_category = None
+                for category, (min_val, max_val) in self.efficiency_categories.items():
+                    if min_val <= efficiency < max_val:
+                        efficiency_category = category
+                        break
+                        
+                if not efficiency_category:
+                    continue
+                    
+                # Record this efficiency value for the category
+                if efficiency_category not in efficiency_data:
+                    efficiency_data[efficiency_category] = []
+                    
+                efficiency_data[efficiency_category].append(efficiency)
+                
+                # Also categorize by temperature range if available
+                if curr.get("temperature") is not None:
+                    temp = curr["temperature"]
+                    temp_category = None
+                    
+                    for cat, (min_temp, max_temp) in self.temp_categories.items():
+                        if min_temp <= temp < max_temp:
+                            temp_category = cat
+                            break
+                            
+                    if temp_category:
+                        temp_efficiency_key = f"{temp_category}_efficiency"
+                        if temp_efficiency_key not in efficiency_data:
+                            efficiency_data[temp_efficiency_key] = []
+                            
+                        efficiency_data[temp_efficiency_key].append(efficiency)
+                
+            except (ValueError, TypeError):
+                continue
+                
+        # Calculate median efficiency for each category
+        for category, values in efficiency_data.items():
+            if len(values) >= self.min_data_points_for_update:
+                median_efficiency = statistics.median(values)
+                
+                # Update with exponential moving average if data exists
+                if category in self.controller.dehumidifier_data["energy_efficiency"]:
+                    old_value = self.controller.dehumidifier_data["energy_efficiency"][category]
+                    new_value = (0.8 * old_value) + (0.2 * median_efficiency)
+                else:
+                    new_value = median_efficiency
+                    
+                self.controller.dehumidifier_data["energy_efficiency"][category] = round(new_value, 2)
+                _LOGGER.info(f"Updated energy efficiency for {category}: {new_value:.2f} Wh per % humidity")
+
     def get_current_model(self):
         """Return the current learning model data for display."""
         return {
@@ -617,5 +716,6 @@ class DehumidifierLearningModule:
             "weather_impact": self.controller.dehumidifier_data.get("weather_impact", {}),
             "temp_impact": self.controller.dehumidifier_data.get("temp_impact", {}),
             "humidity_diff_impact": self.controller.dehumidifier_data.get("humidity_diff_impact", {}),
+            "energy_efficiency": self.controller.dehumidifier_data.get("energy_efficiency", {}),
             "data_points": len(self.humidity_data)
         }

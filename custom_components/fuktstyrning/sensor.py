@@ -27,6 +27,9 @@ from .const import (
     ATTR_NEXT_RUN,
     ATTR_CURRENT_PRICE,
     ATTR_OPTIMAL_PRICE,
+    ATTR_CURRENT_POWER,
+    ATTR_ENERGY_USED,
+    ATTR_ENERGY_EFFICIENCY,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -198,7 +201,7 @@ class LearningModelSensor(SensorEntity):
 
     async def async_update(self) -> None:
         """Update the sensor."""
-        if hasattr(self.controller, 'learning_module'):
+        try:
             model_data = self.controller.learning_module.get_current_model()
             
             # Format data for better display
@@ -241,6 +244,71 @@ class LearningModelSensor(SensorEntity):
                     category_descriptions.get(key, key): f"{value:.2f}x" 
                     for key, value in model_data["humidity_diff_impact"].items()
                 }
+            
+            # Add energy efficiency data if available
+            if "energy_efficiency" in model_data and model_data["energy_efficiency"]:
+                # Provide friendly descriptions for the efficiency categories
+                efficiency_descriptions = {
+                    "excellent": "Utmärkt (< 40 Wh/% fukt)",
+                    "good": "Bra (40-80 Wh/% fukt)",
+                    "average": "Genomsnittlig (80-120 Wh/% fukt)",
+                    "poor": "Dålig (> 120 Wh/% fukt)"
+                }
+                
+                # Format the efficiency values
+                efficiency_data = {}
+                for key, value in model_data["energy_efficiency"].items():
+                    # Special handling for temperature efficiency categories
+                    if "_efficiency" in key:
+                        temp_category = key.split("_")[0]
+                        temp_desc = {
+                            "cold": "Kallt (< 5°C)",
+                            "cool": "Svalt (5-15°C)",
+                            "warm": "Varmt (15-25°C)",
+                            "hot": "Hett (> 25°C)"
+                        }.get(temp_category, temp_category)
+                        formatted_key = f"{temp_desc} effektivitet"
+                    else:
+                        formatted_key = efficiency_descriptions.get(key, key)
+                    
+                    efficiency_data[formatted_key] = f"{value:.1f} Wh/%"
+                
+                if efficiency_data:
+                    self._attr_extra_state_attributes["energy_efficiency"] = efficiency_data
+                
+                # Add current power consumption if available
+                if hasattr(self.controller, 'current_power') and self.controller.current_power > 0:
+                    self._attr_extra_state_attributes["current_power"] = f"{self.controller.current_power:.1f} W"
+                
+                # Add total energy used if available
+                if hasattr(self.controller, 'total_energy_used') and self.controller.total_energy_used > 0:
+                    self._attr_extra_state_attributes["total_energy_used"] = f"{self.controller.total_energy_used:.2f} kWh"
+                
+                # Calculate efficiency over the last 24 hours if data is available
+                if (hasattr(self.controller, 'historical_data') and 
+                    'energy_usage' in self.controller.historical_data and 
+                    self.controller.historical_data['energy_usage']):
+                    
+                    # Get data from the last 24 hours
+                    now = datetime.now()
+                    day_ago = now - timedelta(days=1)
+                    
+                    recent_data = [
+                        entry for entry in self.controller.historical_data['energy_usage']
+                        if datetime.fromisoformat(entry['timestamp']) > day_ago
+                    ]
+                    
+                    if recent_data:
+                        total_energy = sum(entry['energy_used'] for entry in recent_data if 'energy_used' in entry)
+                        total_humidity_change = sum(
+                            abs(entry['humidity_change']) 
+                            for entry in recent_data 
+                            if 'humidity_change' in entry
+                        )
+                        
+                        if total_humidity_change > 0:
+                            avg_efficiency = total_energy / total_humidity_change
+                            self._attr_extra_state_attributes["avg_efficiency_24h"] = f"{avg_efficiency:.1f} Wh/%"
                 
             # Get latest absolute humidity data if available
             latest_data = None
@@ -275,3 +343,5 @@ class LearningModelSensor(SensorEntity):
                     self._attr_extra_state_attributes["indoor_outdoor_comparison"] = indoor_outdoor_data
                 
             self._attr_native_value = f"{model_data['data_points']} data points"
+        except Exception as e:
+            _LOGGER.error(f"Error updating learning model sensor: {e}")

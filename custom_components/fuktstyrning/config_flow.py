@@ -5,7 +5,6 @@ import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers import selector
-from homeassistant.helpers.entity_registry import async_get
 
 from .const import (
     DOMAIN,
@@ -17,6 +16,9 @@ from .const import (
     DEFAULT_MAX_HUMIDITY,
     CONF_OUTDOOR_HUMIDITY_SENSOR,
     CONF_OUTDOOR_TEMP_SENSOR,
+    CONF_POWER_SENSOR,
+    CONF_ENERGY_SENSOR,
+    CONF_VOLTAGE_SENSOR,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -60,6 +62,18 @@ class FuktstyrningConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 outdoor_temp_sensor = user_input.get(CONF_OUTDOOR_TEMP_SENSOR)
                 if outdoor_temp_sensor and not hass.states.get(outdoor_temp_sensor):
                     errors[CONF_OUTDOOR_TEMP_SENSOR] = "entity_not_found"
+                    
+                power_sensor = user_input.get(CONF_POWER_SENSOR)
+                if power_sensor and not hass.states.get(power_sensor):
+                    errors[CONF_POWER_SENSOR] = "entity_not_found"
+                    
+                energy_sensor = user_input.get(CONF_ENERGY_SENSOR)
+                if energy_sensor and not hass.states.get(energy_sensor):
+                    errors[CONF_ENERGY_SENSOR] = "entity_not_found"
+                    
+                voltage_sensor = user_input.get(CONF_VOLTAGE_SENSOR)
+                if voltage_sensor and not hass.states.get(voltage_sensor):
+                    errors[CONF_VOLTAGE_SENSOR] = "entity_not_found"
                 
                 if not errors:
                     # Create entry
@@ -87,6 +101,15 @@ class FuktstyrningConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 selector.EntitySelectorConfig(domain="sensor")
             ),
             vol.Optional(CONF_OUTDOOR_TEMP_SENSOR): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+            vol.Optional(CONF_POWER_SENSOR): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+            vol.Optional(CONF_ENERGY_SENSOR): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+            vol.Optional(CONF_VOLTAGE_SENSOR): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")
             ),
             vol.Optional(CONF_WEATHER_ENTITY): selector.EntitySelector(
@@ -145,6 +168,24 @@ class FuktstyrningOptionsFlowHandler(config_entries.OptionsFlow):
             vol.Optional(
                 CONF_OUTDOOR_TEMP_SENSOR,
                 default=options.get(CONF_OUTDOOR_TEMP_SENSOR, data.get(CONF_OUTDOOR_TEMP_SENSOR, ""))
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+            vol.Optional(
+                CONF_POWER_SENSOR,
+                default=options.get(CONF_POWER_SENSOR, data.get(CONF_POWER_SENSOR, ""))
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+            vol.Optional(
+                CONF_ENERGY_SENSOR,
+                default=options.get(CONF_ENERGY_SENSOR, data.get(CONF_ENERGY_SENSOR, ""))
+            ): selector.EntitySelector(
+                selector.EntitySelectorConfig(domain="sensor")
+            ),
+            vol.Optional(
+                CONF_VOLTAGE_SENSOR,
+                default=options.get(CONF_VOLTAGE_SENSOR, data.get(CONF_VOLTAGE_SENSOR, ""))
             ): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")
             ),

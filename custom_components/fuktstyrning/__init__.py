@@ -30,6 +30,9 @@ from .const import (
     DEFAULT_SCHEDULE_UPDATE_TIME,
     CONF_OUTDOOR_HUMIDITY_SENSOR,
     CONF_OUTDOOR_TEMP_SENSOR,
+    CONF_POWER_SENSOR,
+    CONF_ENERGY_SENSOR,
+    CONF_VOLTAGE_SENSOR,
 )
 from .learning import DehumidifierLearningModule
 
@@ -166,6 +169,9 @@ class FuktstyrningController:
         self.weather_entity = entry.data.get(CONF_WEATHER_ENTITY)
         self.outdoor_humidity_sensor = entry.data.get(CONF_OUTDOOR_HUMIDITY_SENSOR)
         self.outdoor_temp_sensor = entry.data.get(CONF_OUTDOOR_TEMP_SENSOR)
+        self.power_sensor = entry.data.get(CONF_POWER_SENSOR)
+        self.energy_sensor = entry.data.get(CONF_ENERGY_SENSOR)
+        self.voltage_sensor = entry.data.get(CONF_VOLTAGE_SENSOR)
         self.max_humidity = entry.data.get(CONF_MAX_HUMIDITY, DEFAULT_MAX_HUMIDITY)
         self.schedule_update_time = entry.data.get(
             CONF_SCHEDULE_UPDATE_TIME, DEFAULT_SCHEDULE_UPDATE_TIME
@@ -180,6 +186,7 @@ class FuktstyrningController:
             "hourly_savings": [], 
             "hourly_operations": [],
             "last_24h_hours_run": 0,
+            "energy_usage": [],  # Track energy usage for analysis
         }
         
         # Dehumidifier performance data as provided by the user
@@ -200,12 +207,16 @@ class FuktstyrningController:
             # Energy consumption estimation (kWh)
             "estimated_power_kw": 0.35,  # An approximation for a typical dehumidifier
             "minutes_to_60": 45,  # Total time to reduce from 69% to 60%
+            "energy_efficiency": {},  # Store efficiency data (energy used per % humidity removed)
         }
         
         # Power consumption tracking
         self.baseline_consumption = 0
         self.actual_consumption = 0
         self.energy_reading_last = None
+        self.current_power = 0
+        self.total_energy_used = 0
+        self.last_energy_timestamp = None
         
         # Initialize learning module
         self.learning_module = DehumidifierLearningModule(hass, self)
@@ -317,63 +328,117 @@ class FuktstyrningController:
     
     async def _create_daily_schedule(self):
         """Create a daily schedule based on price forecasts and humidity patterns."""
-        # Get price forecast for next 24 hours
-        price_state = self.hass.states.get(self.price_sensor)
-        if not price_state or "tomorrow" not in price_state.attributes:
-            _LOGGER.error(f"Cannot get price forecast from {self.price_sensor}")
-            return
+        # Determine if we need to run the dehumidifier today
+        current_hour = datetime.now().hour
         
         # Get current humidity
         humidity_state = self.hass.states.get(self.humidity_sensor)
         if not humidity_state:
-            _LOGGER.error(f"Cannot get state of humidity sensor {self.humidity_sensor}")
+            _LOGGER.error(f"Could not find humidity sensor {self.humidity_sensor}")
             return
-        
+            
         try:
             current_humidity = float(humidity_state.state)
         except (ValueError, TypeError):
-            _LOGGER.error(f"Invalid humidity value: {humidity_state.state}")
+            _LOGGER.error(f"Could not convert humidity value to float: {humidity_state.state}")
             return
         
-        # Get outdoor conditions for better predictions
-        outdoor_conditions = {
-            "humidity": None,
-            "temperature": None
-        }
+        # Get price forecast for the day
+        price_state = self.hass.states.get(self.price_sensor)
+        if not price_state or "today" not in price_state.attributes:
+            _LOGGER.error(f"Could not get price forecast from {self.price_sensor}")
+            return
+            
+        price_forecast = price_state.attributes.get("today", [])
+        tomorrow_forecast = price_state.attributes.get("tomorrow", [])
         
-        if self.outdoor_humidity_sensor:
-            humidity_state = self.hass.states.get(self.outdoor_humidity_sensor)
-            if humidity_state:
+        # Extend price forecast with tomorrow's prices if available
+        if tomorrow_forecast and len(tomorrow_forecast) > 0:
+            # Only add hours that are still missing today
+            hours_to_add = 24 - len(price_forecast)
+            if hours_to_add > 0:
+                price_forecast.extend(tomorrow_forecast[:hours_to_add])
+        
+        # Get rain forecast if available
+        rain_hours = await self._get_rain_forecast()
+        
+        # Get outdoor conditions
+        outdoor_conditions = None
+        if self.outdoor_humidity_sensor and self.outdoor_temp_sensor:
+            outdoor_humidity_state = self.hass.states.get(self.outdoor_humidity_sensor)
+            outdoor_temp_state = self.hass.states.get(self.outdoor_temp_sensor)
+            
+            try:
+                if outdoor_humidity_state and outdoor_temp_state:
+                    outdoor_humidity = float(outdoor_humidity_state.state)
+                    outdoor_temp = float(outdoor_temp_state.state)
+                    outdoor_conditions = {
+                        "humidity": outdoor_humidity,
+                        "temperature": outdoor_temp
+                    }
+            except (ValueError, TypeError):
+                _LOGGER.warning("Could not convert outdoor sensor values to float")
+                
+        # Get power and energy readings
+        power = None
+        energy = None
+        if self.power_sensor:
+            power_state = self.hass.states.get(self.power_sensor)
+            if power_state and power_state.state not in ['unknown', 'unavailable']:
                 try:
-                    outdoor_conditions["humidity"] = float(humidity_state.state)
+                    power = float(power_state.state)
                 except (ValueError, TypeError):
-                    pass
+                    _LOGGER.warning("Could not convert power reading to float")
                     
-        if self.outdoor_temp_sensor:
-            temp_state = self.hass.states.get(self.outdoor_temp_sensor)
-            if temp_state:
+        if self.energy_sensor:
+            energy_state = self.hass.states.get(self.energy_sensor)
+            if energy_state and energy_state.state not in ['unknown', 'unavailable']:
                 try:
-                    outdoor_conditions["temperature"] = float(temp_state.state)
+                    energy = float(energy_state.state)
                 except (ValueError, TypeError):
-                    pass
+                    _LOGGER.warning("Could not convert energy reading to float")
         
-        # Combine today's remaining hours and tomorrow's prices
-        current_hour = datetime.now().hour
-        today_prices = list(price_state.attributes.get("today", []))[current_hour:]
-        tomorrow_prices = list(price_state.attributes.get("tomorrow", []))
+        # Record humidity data for learning
+        temp_state = self.hass.states.get("sensor.aqara_t1_innerst_temperatur")
+        temp = float(temp_state.state) if temp_state else None
         
-        # Create 24-hour price list
-        price_forecast = today_prices + tomorrow_prices
-        price_forecast = price_forecast[:24]  # Ensure we only have 24 hours
+        weather = None
+        if self.weather_entity:
+            weather_state = self.hass.states.get(self.weather_entity)
+            if weather_state:
+                weather = weather_state.state
         
-        # Get weather forecast if available to adjust for expected rain
-        rain_forecast = await self._get_rain_forecast()
+        # Get outdoor data for learning
+        outdoor_humidity = None
+        outdoor_temp = None
+        if outdoor_conditions:
+            outdoor_humidity = outdoor_conditions.get("humidity")
+            outdoor_temp = outdoor_conditions.get("temperature")
         
-        # Create optimized running schedule based on prices, humidity and weather
-        self.schedule = self._optimize_schedule(price_forecast, current_humidity, rain_forecast, outdoor_conditions)
-        self.schedule_created_date = datetime.now().date()
+        # Record this data point for learning
+        self.learning_module.record_humidity_data(
+            current_humidity, 
+            False,  # assuming we're not running when creating schedule
+            temperature=temp, 
+            weather=weather,
+            outdoor_humidity=outdoor_humidity,
+            outdoor_temp=outdoor_temp,
+            power=power,
+            energy=energy
+        )
         
-        _LOGGER.info(f"Created new dehumidifier schedule: {self.schedule}")
+        # Create optimized schedule
+        self.schedule = self._optimize_schedule(
+            price_forecast, 
+            current_humidity, 
+            rain_hours,
+            outdoor_conditions
+        )
+        
+        # Record when the schedule was created
+        self.schedule_created_date = datetime.now()
+        
+        _LOGGER.info(f"Created new schedule based on humidity {current_humidity}%, prices and weather")
     
     async def _get_rain_forecast(self):
         """Get rain forecast from the weather entity if available."""
@@ -571,12 +636,92 @@ class FuktstyrningController:
         dehumidifier_state = self.hass.states.get(self.dehumidifier_switch)
         is_on = dehumidifier_state.state == "on" if dehumidifier_state else False
         
+        # Get current power and energy readings from sensors
+        self._update_energy_data()
+        
         if should_be_on and not is_on:
             await self._turn_on_dehumidifier()
             _LOGGER.info(f"Turning dehumidifier ON according to schedule (hour {current_hour})")
         elif not should_be_on and is_on and not self.override_active:
             await self._turn_off_dehumidifier()
             _LOGGER.info(f"Turning dehumidifier OFF according to schedule (hour {current_hour})")
+    
+    def _update_energy_data(self):
+        """Update energy data from sensors."""
+        # Get power data
+        if self.power_sensor:
+            power_state = self.hass.states.get(self.power_sensor)
+            if power_state and power_state.state not in ['unknown', 'unavailable']:
+                try:
+                    self.current_power = float(power_state.state)
+                    # Update estimated power based on actual readings
+                    if self.current_power > 10:  # Only update if dehumidifier is on (power > 10W)
+                        # Use exponential moving average to update the estimated power
+                        self.dehumidifier_data["estimated_power_kw"] = (
+                            0.8 * self.dehumidifier_data["estimated_power_kw"] + 
+                            0.2 * (self.current_power / 1000)  # Convert W to kW
+                        )
+                except (ValueError, TypeError):
+                    _LOGGER.warning("Could not convert power reading to float")
+                    
+        # Get energy data
+        if self.energy_sensor:
+            energy_state = self.hass.states.get(self.energy_sensor)
+            now = datetime.now()
+            
+            if energy_state and energy_state.state not in ['unknown', 'unavailable']:
+                try:
+                    current_energy = float(energy_state.state)
+                    
+                    # Update total energy used
+                    if self.energy_reading_last is not None:
+                        # Only record if this is an increase (to handle counter resets)
+                        if current_energy > self.energy_reading_last:
+                            energy_used = current_energy - self.energy_reading_last
+                            self.total_energy_used += energy_used
+                            
+                            # Record energy usage data for analysis
+                            if self.last_energy_timestamp:
+                                # Get humidity readings
+                                humidity_state = self.hass.states.get(self.humidity_sensor)
+                                if humidity_state and humidity_state.state not in ['unknown', 'unavailable']:
+                                    try:
+                                        current_humidity = float(humidity_state.state)
+                                        
+                                        # Calculate time difference
+                                        time_diff = (now - self.last_energy_timestamp).total_seconds() / 3600  # hours
+                                        
+                                        # Record in historical data
+                                        self.historical_data["energy_usage"].append({
+                                            "timestamp": now.isoformat(),
+                                            "energy_used": energy_used,
+                                            "power": self.current_power,
+                                            "duration": time_diff,
+                                            "humidity": current_humidity
+                                        })
+                                        
+                                        # Keep only recent entries
+                                        self.historical_data["energy_usage"] = \
+                                            self.historical_data["energy_usage"][-100:]
+                                    except (ValueError, TypeError):
+                                        pass
+                    
+                    # Update last readings
+                    self.energy_reading_last = current_energy
+                    self.last_energy_timestamp = now
+                    
+                except (ValueError, TypeError):
+                    _LOGGER.warning("Could not convert energy reading to float")
+            
+        # Get voltage data (not critical but good for analysis)
+        if self.voltage_sensor:
+            voltage_state = self.hass.states.get(self.voltage_sensor)
+            if voltage_state and voltage_state.state not in ['unknown', 'unavailable']:
+                try:
+                    voltage = float(voltage_state.state)
+                    # We could use this for additional insights, but not currently needed
+                except (ValueError, TypeError):
+                    pass
     
     async def _update_cost_savings(self):
         """Update cost savings based on price optimization."""
@@ -601,9 +746,14 @@ class FuktstyrningController:
         dehumidifier_state = self.hass.states.get(self.dehumidifier_switch)
         is_on = dehumidifier_state.state == "on" if dehumidifier_state else False
         
+        # Update energy data
+        self._update_energy_data()
+        
         if is_on:
+            # Use actual power if available, otherwise use estimated
+            power_kw = self.current_power / 1000 if self.current_power > 0 else self.dehumidifier_data["estimated_power_kw"]
+            
             # Calculate cost if we ran at average price vs. current price
-            power_kw = self.dehumidifier_data["estimated_power_kw"]
             hourly_saving = power_kw * (avg_price - current_price)
             
             # If the current price is below average, we're saving money
@@ -616,6 +766,7 @@ class FuktstyrningController:
                 "timestamp": datetime.now().isoformat(),
                 "price": current_price,
                 "avg_price": avg_price,
+                "power": self.current_power,
                 "saving": hourly_saving if current_price < avg_price else 0
             })
             

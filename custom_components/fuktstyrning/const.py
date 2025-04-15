@@ -11,6 +11,9 @@ CONF_MAX_HUMIDITY = "max_humidity"
 CONF_SCHEDULE_UPDATE_TIME = "schedule_update_time"
 CONF_OUTDOOR_HUMIDITY_SENSOR = "outdoor_humidity_sensor"
 CONF_OUTDOOR_TEMP_SENSOR = "outdoor_temp_sensor"
+CONF_POWER_SENSOR = "power_sensor"
+CONF_ENERGY_SENSOR = "energy_sensor"
+CONF_VOLTAGE_SENSOR = "voltage_sensor"
 
 # Defaults
 DEFAULT_MAX_HUMIDITY = 70.0
@@ -24,6 +27,9 @@ ATTR_SCHEDULE_CREATED = "schedule_created"
 ATTR_NEXT_RUN = "next_run"
 ATTR_CURRENT_PRICE = "current_price"
 ATTR_OPTIMAL_PRICE = "optimal_price"
+ATTR_CURRENT_POWER = "current_power"
+ATTR_ENERGY_USED = "energy_used"
+ATTR_ENERGY_EFFICIENCY = "energy_efficiency"
 
 # Unique IDs
 CONTROLLER_UNIQUE_ID = "controller"
