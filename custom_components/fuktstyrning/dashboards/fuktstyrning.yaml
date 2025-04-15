@@ -1,0 +1,116 @@
+title: Fuktstyrning
+views:
+  - title: Avfuktare
+    icon: mdi:air-humidifier
+    path: dehumidifier
+    badges: []
+    cards:
+      - type: vertical-stack
+        cards:
+          - type: entities
+            title: Avfuktare Status
+            entities:
+              - entity: sensor.aqara_t1_innerst_luftfuktighet
+                name: Aktuell Fuktnivå
+                icon: mdi:water-percent
+              - entity: sensor.fuktstyrning_predicted_humidity
+                name: Prognostiserad Fuktnivå
+                icon: mdi:water-percent-alert
+              - entity: binary_sensor.fuktstyrning_optimal_running_period
+                name: Optimal Körtid
+                icon: mdi:clock-outline
+              - entity: switch.fuktstyrning_dehumidifier_smart_control
+                name: Smart Styrning
+                icon: mdi:air-humidifier
+              # Replace this with your actual Aqara switch entity
+              - entity: switch.your_aqara_switch
+                name: Avfuktare Strömbrytare
+                icon: mdi:power-socket-eu
+            state_color: true
+            
+      - type: vertical-stack
+        cards:
+          - type: custom:apexcharts-card
+            header:
+              show: true
+              title: Fuktnivå och Elpris
+              show_states: true
+            graph_span: 24h
+            series:
+              - entity: sensor.aqara_t1_innerst_luftfuktighet
+                name: Fuktnivå
+                color: '#3498db'
+                stroke_width: 2
+                show:
+                  in_header: true
+                  legend_value: false
+              - entity: sensor.nordpool_kwh_se3_3_10_025
+                name: Elpris (öre/kWh)
+                color: '#e74c3c'
+                stroke_width: 2
+                curve: stepline
+                show:
+                  in_header: true
+                  legend_value: false
+                  
+          - type: custom:apexcharts-card
+            header:
+              show: true
+              title: Körtid och Fuktnivå
+            graph_span: 7d
+            series:
+              - entity: sensor.aqara_t1_innerst_luftfuktighet
+                name: Fuktnivå
+                color: '#3498db'
+                stroke_width: 2
+              - entity: binary_sensor.fuktstyrning_optimal_running_period
+                name: Körtid
+                color: '#2ecc71'
+                type: column
+                opacity: 0.5
+                
+      - type: vertical-stack
+        cards:
+          - type: entities
+            title: Besparingar
+            entities:
+              - entity: sensor.fuktstyrning_cost_savings
+                name: Besparingar
+                icon: mdi:cash-plus
+              - attribute: current_hour_price
+                entity: binary_sensor.fuktstyrning_optimal_running_period
+                name: Aktuellt Pris
+                icon: mdi:cash
+                suffix: öre/kWh
+              - attribute: average_price_today
+                entity: binary_sensor.fuktstyrning_optimal_running_period
+                name: Genomsnittligt Pris
+                icon: mdi:cash-multiple
+                suffix: öre/kWh
+              - attribute: is_below_average
+                entity: binary_sensor.fuktstyrning_optimal_running_period
+                name: Lägre än Genomsnitt
+                icon: mdi:arrow-down-bold-circle
+                
+          - type: markdown
+            content: >
+              ### Schema för avfuktaren
+              
+              Avfuktaren är schemalagd att köra under de timmar på dygnet
+              när elpriset är som mest fördelaktigt, samtidigt som fuktnivån hålls under 70%.
+              
+              Om fukthalten når 70% eller högre, kommer avfuktaren att slås på oavsett pris
+              för att säkerställa att fuktnivån förblir på en säker nivå.
+              
+      - type: custom:auto-entities
+        card:
+          type: glance
+          title: Körtidsschema för Idag
+          show_state: false
+        filter:
+          include:
+            - entity_id: input_boolean.dehumidifier_hour_*
+          exclude: []
+        sort:
+          method: entity_id
+          numeric: true

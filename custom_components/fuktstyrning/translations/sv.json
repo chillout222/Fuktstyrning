@@ -1,0 +1,36 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Konfigurera Fuktstyrning",
+        "description": "Konfigurera din styrning av avfuktaren",
+        "data": {
+          "humidity_sensor": "Fuktighetssensor",
+          "price_sensor": "Elpris-sensor",
+          "dehumidifier_switch": "Avfuktarens strömbrytare",
+          "weather_entity": "Väderentitet (valfritt)",
+          "max_humidity": "Maximal fuktighetsgräns (%)"
+        }
+      }
+    },
+    "error": {
+      "entity_not_found": "Entitet hittades inte",
+      "unknown": "Okänt fel"
+    },
+    "abort": {
+      "already_configured": "Redan konfigurerad"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Fuktstyrning Inställningar",
+        "description": "Justera avfuktarens kontrollinställningar",
+        "data": {
+          "max_humidity": "Maximal fuktighetsgräns (%)",
+          "weather_entity": "Väderentitet (valfritt)"
+        }
+      }
+    }
+  }
+}

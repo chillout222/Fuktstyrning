@@ -1,0 +1,35 @@
+update_schedule:
+  name: Update Schedule
+  description: Force an update of the dehumidifier schedule
+  target:
+    entity:
+      domain: switch
+      integration: fuktstyrning
+
+reset_cost_savings:
+  name: Reset Cost Savings
+  description: Reset the cost savings counter to zero
+  target:
+    entity:
+      domain: sensor
+      integration: fuktstyrning
+      
+set_max_humidity:
+  name: Set Max Humidity
+  description: Temporarily change the maximum humidity threshold
+  target:
+    entity:
+      domain: switch
+      integration: fuktstyrning
+  fields:
+    max_humidity:
+      name: Max Humidity
+      description: The maximum humidity level threshold (%)
+      required: true
+      selector:
+        number:
+          min: 50
+          max: 90
+          step: 1
+          unit_of_measurement: "%"
+          mode: slider

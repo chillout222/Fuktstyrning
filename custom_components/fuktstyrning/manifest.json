@@ -1,0 +1,11 @@
+{
+  "domain": "fuktstyrning",
+  "name": "Fuktstyrning - Smart Dehumidifier Control",
+  "documentation": "https://github.com/yourusername/fuktstyrning",
+  "dependencies": ["nordpool", "recorder"],
+  "codeowners": [],
+  "requirements": [],
+  "iot_class": "local_polling",
+  "version": "0.1.0",
+  "config_flow": true
+}

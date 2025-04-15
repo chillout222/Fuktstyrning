@@ -1,0 +1,36 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Set up Fuktstyrning",
+        "description": "Configure your dehumidifier controller",
+        "data": {
+          "humidity_sensor": "Humidity Sensor",
+          "price_sensor": "Electricity Price Sensor",
+          "dehumidifier_switch": "Dehumidifier Switch",
+          "weather_entity": "Weather Entity (optional)",
+          "max_humidity": "Maximum Humidity Threshold (%)"
+        }
+      }
+    },
+    "error": {
+      "entity_not_found": "Entity not found",
+      "unknown": "Unknown error"
+    },
+    "abort": {
+      "already_configured": "Already configured"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Fuktstyrning Options",
+        "description": "Adjust dehumidifier controller settings",
+        "data": {
+          "max_humidity": "Maximum Humidity Threshold (%)",
+          "weather_entity": "Weather Entity (optional)"
+        }
+      }
+    }
+  }
+}
