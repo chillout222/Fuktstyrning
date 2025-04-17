@@ -16,7 +16,7 @@ views:
               - entity: sensor.fuktstyrning_predicted_humidity
                 name: Prognostiserad Fuktnivå
                 icon: mdi:water-percent-alert
-              - entity: binary_sensor.fuktstyrning_optimal_running_period
+              - entity: binary_sensor.fuktstyrning_optimal_running_period_2
                 name: Optimal Körtid
                 icon: mdi:clock-outline
               - entity: switch.fuktstyrning_dehumidifier_smart_control
@@ -63,7 +63,7 @@ views:
                 name: Fuktnivå
                 color: '#3498db'
                 stroke_width: 2
-              - entity: binary_sensor.fuktstyrning_optimal_running_period
+              - entity: binary_sensor.fuktstyrning_optimal_running_period_2
                 name: Körtid
                 color: '#2ecc71'
                 type: column
@@ -78,17 +78,17 @@ views:
                 name: Besparingar
                 icon: mdi:cash-plus
               - attribute: current_hour_price
-                entity: binary_sensor.fuktstyrning_optimal_running_period
+                entity: binary_sensor.fuktstyrning_optimal_running_period_2
                 name: Aktuellt Pris
                 icon: mdi:cash
                 suffix: öre/kWh
               - attribute: average_price_today
-                entity: binary_sensor.fuktstyrning_optimal_running_period
+                entity: binary_sensor.fuktstyrning_optimal_running_period_2
                 name: Genomsnittligt Pris
                 icon: mdi:cash-multiple
                 suffix: öre/kWh
               - attribute: is_below_average
-                entity: binary_sensor.fuktstyrning_optimal_running_period
+                entity: binary_sensor.fuktstyrning_optimal_running_period_2
                 name: Lägre än Genomsnitt
                 icon: mdi:arrow-down-bold-circle
                 
