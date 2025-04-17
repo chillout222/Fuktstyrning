@@ -150,10 +150,10 @@ class FuktstyrningConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @callback
     def async_get_options_flow(config_entry):
         """Get the options flow for this handler."""
-        return FuktstyrningOptionsFlowHandler(config_entry)
+        return OptionsFlowHandler(config_entry)
 
 
-class FuktstyrningOptionsFlowHandler(config_entries.OptionsFlow):
+class OptionsFlowHandler(config_entries.OptionsFlow):
     """Handle a option flow for Fuktstyrning."""
 
     def __init__(self, config_entry: config_entries.ConfigEntry) -> None:

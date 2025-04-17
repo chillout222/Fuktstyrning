@@ -223,18 +223,38 @@ class FuktstyrningController:
 
     async def initialize(self):
         """Initialize the controller operations."""
-        # Start periodic schedule update
-        self._unsub_interval = async_track_time_interval(
-            self.hass, 
-            self._update_schedule,
-            timedelta(minutes=15)
-        )
-        
-        # Initialize learning module
-        await self.learning_module.initialize()
-        
-        # Create initial schedule
-        await self._update_schedule(datetime.now())
+        try:
+            _LOGGER.debug("Initializing Fuktstyrning controller - setup interval tracking")
+            # Start periodic schedule update
+            self._unsub_interval = async_track_time_interval(
+                self.hass, 
+                self._update_schedule,
+                timedelta(minutes=15)
+            )
+            
+            try:
+                _LOGGER.debug("Initializing learning module")
+                # Initialize learning module
+                await self.learning_module.initialize()
+                _LOGGER.debug("Learning module initialized successfully")
+            except Exception as learning_error:
+                _LOGGER.error(f"Failed to initialize learning module: {learning_error}")
+                raise
+            
+            try:
+                _LOGGER.debug("Creating initial schedule")
+                # Create initial schedule
+                await self._update_schedule(datetime.now())
+                _LOGGER.debug("Initial schedule created successfully")
+            except Exception as schedule_error:
+                _LOGGER.error(f"Failed to create initial schedule: {schedule_error}")
+                raise
+                
+            _LOGGER.info("Fuktstyrning controller initialization completed successfully")
+            
+        except Exception as e:
+            _LOGGER.error(f"Failed to initialize Fuktstyrning controller: {e}")
+            raise
         
     async def shutdown(self):
         """Shutdown the controller operations."""
