@@ -50,8 +50,10 @@ class DehumidifierLearningModule:
             "poor": (120, 999)     # More than 120 Wh per % humidity
         }
         
-        # Load existing learning data
-        self.load_learning_data()
+        # Schedule loading existing learning data without blocking the event loop
+        self.hass.async_create_task(
+            self.hass.async_add_executor_job(self.load_learning_data)
+        )
 
     async def initialize(self):
         """Start the learning process."""
