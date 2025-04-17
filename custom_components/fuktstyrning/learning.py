@@ -51,9 +51,7 @@ class DehumidifierLearningModule:
         }
         
         # Schedule loading existing learning data without blocking the event loop
-        self.hass.async_create_task(
-            self.hass.async_add_executor_job(self.load_learning_data)
-        )
+        self.hass.async_add_executor_job(self.load_learning_data)
 
     async def initialize(self):
         """Start the learning process."""

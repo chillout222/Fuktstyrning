@@ -109,7 +109,7 @@ class FuktstyrningConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             vol.Required(CONF_HUMIDITY_SENSOR, default="sensor.aqara_t1_innerst_luftfuktighet"): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")
             ),
-            vol.Required(CONF_PRICE_SENSOR, default="sensor.nordpool_kwh_se3_3_10_025"): selector.EntitySelector(
+            vol.Required(CONF_PRICE_SENSOR, default="sensor.nordpool_kwh_se3_sek_3_10_025"): selector.EntitySelector(
                 selector.EntitySelectorConfig(domain="sensor")
             ),
             vol.Required(CONF_DEHUMIDIFIER_SWITCH): selector.EntitySelector(

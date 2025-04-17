@@ -44,7 +44,7 @@ views:
                 show:
                   in_header: true
                   legend_value: false
-              - entity: sensor.nordpool_kwh_se3_3_10_025
+              - entity: sensor.nordpool_kwh_se3_sek_3_10_025
                 name: Elpris (öre/kWh)
                 color: '#e74c3c'
                 stroke_width: 2
