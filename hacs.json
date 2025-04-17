@@ -1,0 +1,7 @@
+{
+  "name": "Fuktstyrning",
+  "content_in_root": false,
+  "domains": ["fuktstyrning"],
+  "country": "SE",
+  "homeassistant": "2023.0.0"
+}
