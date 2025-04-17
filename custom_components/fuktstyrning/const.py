@@ -3,6 +3,11 @@
 DOMAIN = "fuktstyrning"
 PLATFORMS = ["sensor", "switch", "binary_sensor"]
 
+SERVICE_UPDATE_SCHEDULE = "update_schedule"
+SERVICE_RESET_COST_SAVINGS = "reset_cost_savings"
+SERVICE_SET_MAX_HUMIDITY = "set_max_humidity"
+ATTR_ENTITY_ID = "entity_id"
+
 # Configuration
 CONF_HUMIDITY_SENSOR = "humidity_sensor"
 CONF_PRICE_SENSOR = "price_sensor"
