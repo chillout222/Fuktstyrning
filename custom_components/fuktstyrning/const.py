@@ -1,6 +1,7 @@
 """Constants for the Fuktstyrning integration."""
 
 DOMAIN = "fuktstyrning"
+PLATFORMS = ["sensor", "switch", "binary_sensor"]
 
 # Configuration
 CONF_HUMIDITY_SENSOR = "humidity_sensor"
