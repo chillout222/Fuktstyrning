@@ -25,9 +25,19 @@ Vid installationen kommer du behöva ange följande information:
 
 * **Fuktighetssensor**: Välj `sensor.aqara_t1_innerst_luftfuktighet`
 * **Elpris-sensor**: Välj `sensor.nordpool_kwh_se3_3_10_025`
-* **Avfuktarens strömbrytare**: Välj din Aqara Wall Plug som styr avfuktaren
+* **Avfuktarens switch**: `switch.lumi_lumi_plug_maeu01_switch`
+* **Aktiv effekt**: `sensor.lumi_lumi_plug_maeu01_active_power`
+* **Plug-in temperatursensor**: `sensor.lumi_lumi_plug_maeu01_device_temperature`
+* **Plug-in spänningssensor**: `sensor.lumi_lumi_plug_maeu01_rms_voltage`
 * **Väderentitet** (valfritt): Om du vill använda väderdata för att förutse fuktnivåer
 * **Maximal fuktighetsgräns**: Standardvärdet är 70%
+* **Utomhusfuktighetssensor** (valfritt): `sensor.aqara_ute_luftfuktighet`
+* **Utomhustemperatursensor** (valfritt): `sensor.aqara_ute_temperatur`
+* **Utomhustrycksensor** (valfritt): `sensor.aqara_ute_tryck`
+* **Temperatursensor** (valfritt): Välj `sensor.aqara_t1_innerst_temperatur`
+* **Trycksensor** (valfritt): Välj `sensor.aqara_t1_innerst_tryck`
+* **Energisensor (konsumerad)** (valfritt): `sensor.lumi_lumi_plug_maeu01_summation_delivered`
+* **Schematid** (valfritt): Parameter `schedule_update_time` (t.ex. "13:00")
 
 ## Dashboard
 
