@@ -6,6 +6,7 @@ import json
 import os
 import asyncio
 import math
+import tempfile
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.event import async_track_time_interval
@@ -122,10 +123,12 @@ class DehumidifierLearningModule:
             if "energy_efficiency" in self.controller.dehumidifier_data:
                 data["energy_efficiency"] = self.controller.dehumidifier_data["energy_efficiency"]
                 
-            with open(self.learning_data_file, "w") as f:
+            # Atomic write to avoid corruption
+            tmp_file = self.learning_data_file + ".tmp"
+            with open(tmp_file, "w") as f:
                 json.dump(data, f)
-                
-            _LOGGER.info("Saved learning data to file")
+            os.replace(tmp_file, self.learning_data_file)
+            _LOGGER.info("Saved learning data to file atomically")
         except Exception as e:
             _LOGGER.error(f"Error saving learning data: {e}")
 
@@ -424,9 +427,8 @@ class DehumidifierLearningModule:
         # Calculate median increase rates for each weather category
         base_rate = None
         for category, rates in weather_humidity_data.items():
-            if len(rates) >= self.min_data_points_for_update:
-                if category == "other" or not base_rate:
-                    base_rate = statistics.median(rates)
+            if category == "other" or not base_rate:
+                base_rate = statistics.median(rates)
                     
         # Only update multipliers if we have a base rate
         if base_rate and base_rate > 0:

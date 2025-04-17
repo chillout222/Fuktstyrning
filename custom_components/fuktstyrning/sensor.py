@@ -80,6 +80,10 @@ class CostSavingsSensor(SensorEntity):
         """Update the sensor."""
         self._attr_native_value = self.controller.cost_savings
         
+        # Determine optimal price from forecast
+        price_forecast = self.controller._get_price_forecast()
+        optimal_price = min(price_forecast) if price_forecast else None
+        
         # Update attributes
         price_sensor = self.hass.states.get(self.controller.price_sensor)
         current_price = float(price_sensor.state) if price_sensor else None
@@ -87,6 +91,7 @@ class CostSavingsSensor(SensorEntity):
         self._attr_extra_state_attributes.update({
             ATTR_SCHEDULE_CREATED: self.controller.schedule_created_date.isoformat() if self.controller.schedule_created_date else None,
             ATTR_CURRENT_PRICE: current_price,
+            ATTR_OPTIMAL_PRICE: optimal_price,
             ATTR_SCHEDULE: self.controller.schedule,
         })
 
@@ -121,35 +126,35 @@ class HumidityPredictionSensor(SensorEntity):
         
         current_humidity = float(humidity_sensor.state)
         
-        # Predict future humidity based on dehumidifier data
-        # Simple prediction - if dehumidifier is off, humidity will increase according to the rate
-        dehumidifier_on = self._is_dehumidifier_on()
-        prediction_time = datetime.now() + timedelta(hours=1)
-        
+        # Predict 1‑hour humidity change using learned model
+        model = self.controller.learning_module.get_current_model()
+        ttr = model.get("time_to_reduce", {})
+        tti = model.get("time_to_increase", {})
         predicted_humidity = current_humidity
         
+        dehumidifier_on = self._is_dehumidifier_on()
         if dehumidifier_on:
-            # Predict decrease in humidity
-            if 69 >= current_humidity > 68:
-                predicted_humidity = 68
-            elif 68 >= current_humidity > 67:
-                predicted_humidity = 67
-            elif 67 >= current_humidity > 66:
-                predicted_humidity = 66
-            elif 66 >= current_humidity > 65:
-                predicted_humidity = 65
-            elif 65 >= current_humidity > 60:
-                reduction_per_minute = 5 / 30  # 5% reduction in 30 minutes
-                time_running = 60  # assuming 1 hour for prediction
-                predicted_humidity = max(60, current_humidity - (reduction_per_minute * time_running))
+            # Find appropriate reduction bucket
+            for bucket, mins in ttr.items():
+                lo_hi = bucket.split("_to_")
+                if len(lo_hi) != 2:
+                    continue
+                hi, lo = float(lo_hi[0]), float(lo_hi[1])
+                if hi >= current_humidity > lo:
+                    rate_per_min = (hi - lo) / mins if mins > 0 else 0
+                    predicted_humidity = max(lo, current_humidity - rate_per_min * 60)
+                    break
         else:
-            # Predict increase in humidity
-            if 60 <= current_humidity < 65:
-                # Increases by 5% over 1 hour
-                predicted_humidity = min(65, current_humidity + 5)
-            elif 65 <= current_humidity < 70:
-                # Increases by 5% over 5 hours
-                predicted_humidity = min(70, current_humidity + (5/5))
+            # Find appropriate increase bucket
+            for bucket, hrs in tti.items():
+                lo_hi = bucket.split("_to_")
+                if len(lo_hi) != 2:
+                    continue
+                hi, lo = float(lo_hi[0]), float(lo_hi[1])
+                if lo <= current_humidity < hi:
+                    rate_per_hr = (hi - lo) / hrs if hrs > 0 else 0
+                    predicted_humidity = min(hi, current_humidity + rate_per_hr)
+                    break
         
         self._attr_native_value = round(predicted_humidity, 1)
         

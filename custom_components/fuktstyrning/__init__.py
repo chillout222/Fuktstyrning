@@ -344,21 +344,11 @@ class FuktstyrningController:
             return
         
         # Get price forecast for the day
-        price_state = self.hass.states.get(self.price_sensor)
-        if not price_state or "today" not in price_state.attributes:
-            _LOGGER.error(f"Could not get price forecast from {self.price_sensor}")
+        price_forecast = self._get_price_forecast()
+        if not price_forecast:
+            _LOGGER.error("No price forecast available, skipping schedule")
             return
-            
-        price_forecast = price_state.attributes.get("today", [])
-        tomorrow_forecast = price_state.attributes.get("tomorrow", [])
-        
-        # Extend price forecast with tomorrow's prices if available
-        if tomorrow_forecast and len(tomorrow_forecast) > 0:
-            # Only add hours that are still missing today
-            hours_to_add = 24 - len(price_forecast)
-            if hours_to_add > 0:
-                price_forecast.extend(tomorrow_forecast[:hours_to_add])
-        
+
         # Get rain forecast if available
         rain_hours = await self._get_rain_forecast()
         
@@ -470,6 +460,23 @@ class FuktstyrningController:
                     
         return rain_hours
     
+    def _get_price_forecast(self) -> list:
+        """Retrieve price forecast for today (and tomorrow) as a list of hourly prices."""
+        price_state = self.hass.states.get(self.price_sensor)
+        if not price_state:
+            _LOGGER.error(f"Price sensor {self.price_sensor} not found")
+            return []
+        try:
+            today = list(price_state.attributes.get("today", []))
+            tomorrow = list(price_state.attributes.get("tomorrow", []))
+        except Exception as e:
+            _LOGGER.error(f"Error reading price attributes from {self.price_sensor}: {e}")
+            return []
+        # Extend with tomorrow's prices if needed
+        if tomorrow and len(today) < 24:
+            today.extend(tomorrow[:24 - len(today)])
+        return today
+
     def _optimize_schedule(self, price_forecast, current_humidity, rain_hours=None, outdoor_conditions=None):
         """Create an optimized schedule based on prices, humidity trends, and weather.
         
@@ -485,6 +492,7 @@ class FuktstyrningController:
         
         # Calculate how many hours we need to run the dehumidifier
         hours_needed = self._calculate_required_runtime(current_humidity, outdoor_conditions)
+        _LOGGER.info(f"Calculated required runtime: {hours_needed}h for humidity {current_humidity}%")
         
         # Apply weather impact adjustments if weather data is available
         if "weather_impact" in self.dehumidifier_data and rain_hours:
@@ -580,48 +588,32 @@ class FuktstyrningController:
     
     def _calculate_required_runtime(self, current_humidity, outdoor_conditions=None):
         """Calculate how many hours the dehumidifier needs to run in the next 24h."""
-        # If humidity is already at target levels, run maintenance cycles
-        if current_humidity <= 60:
-            return 1  # Run 1 hour per day for maintenance
-            
-        # For humidity between 60% and 70%, calculate required runtime
-        if 60 < current_humidity <= 70:
-            # This is a simplified model based on the provided dehumidifier data
-            
-            # First, estimate how long it will take to reduce to optimal level
-            minutes_to_optimal = 0
-            
-            if current_humidity > 68:
-                minutes_to_optimal += self.dehumidifier_data["time_to_reduce"]["69_to_68"]
-            if current_humidity > 67:
-                minutes_to_optimal += self.dehumidifier_data["time_to_reduce"]["68_to_67"]
-            if current_humidity > 66:
-                minutes_to_optimal += self.dehumidifier_data["time_to_reduce"]["67_to_66"]
-            if current_humidity > 65:
-                minutes_to_optimal += self.dehumidifier_data["time_to_reduce"]["66_to_65"]
-            if current_humidity > 60:
-                minutes_to_optimal += self.dehumidifier_data["time_to_reduce"]["65_to_60"]
-                
-            # Convert to hours and round up
-            hours_to_optimal = (minutes_to_optimal + 59) // 60
-            
-            # Add maintenance time to prevent humidity from rising back too quickly
-            # The higher the humidity, the more maintenance time needed
-            maintenance_hours = 1
-            if current_humidity > 65:
-                maintenance_hours = 2
-            
-            # Adjust based on outdoor conditions
-            if outdoor_conditions and outdoor_conditions.get("humidity") is not None:
-                outdoor_humidity = outdoor_conditions["humidity"]
-                # If outdoor humidity is significantly higher, increase runtime
-                if outdoor_humidity > current_humidity + 15:
-                    maintenance_hours += 1
-                    
-            return min(max(hours_to_optimal + maintenance_hours, 1), 8)  # Between 1-8 hours
-        
-        # For safety, if humidity is very high, run more
-        return 8  # Maximum runtime per day
+        # Use learned model to calculate required runtime
+        model = self.learning_module.get_current_model()
+        ttr = model.get("time_to_reduce", {})
+        tti = model.get("time_to_increase", {})
+        # Maintenance cycle if at or below target humidity
+        if current_humidity <= self.max_humidity:
+            # Choose appropriate increase-rate bucket
+            if current_humidity <= 65:
+                maintenance = tti.get("60_to_65", 1)
+            else:
+                maintenance = tti.get("65_to_70", 2)
+            return max(1, int(round(maintenance)))
+        # Calculate time to reduce from current to max_humidity using learned rates
+        minutes = 0
+        for bucket, mins in ttr.items():
+            parts = bucket.split("_to_")
+            if len(parts) != 2:
+                continue
+            high, low = float(parts[0]), float(parts[1])
+            if current_humidity > high:
+                minutes += mins
+            elif current_humidity > low:
+                minutes += mins
+        hours_needed = (minutes + 59) // 60
+        # Clamp between 1 and 8 hours
+        return min(max(hours_needed, 1), 8)
     
     async def _follow_schedule(self):
         """Follow the created schedule."""
