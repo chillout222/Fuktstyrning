@@ -1,11 +1,11 @@
-"""Service registrering för Fuktstyrning integration."""
+"""Service registration for Fuktstyrning integration."""
 
 import logging
 import voluptuous as vol
 
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.helpers import entity_service
+from homeassistant.helpers import service
 import homeassistant.helpers.config_validation as cv
 
 from .const import (
@@ -19,8 +19,8 @@ from .const import (
 
 _LOGGER = logging.getLogger(__name__)
 
-# Tillåt både data.entity_id och target.entity_id (samt area_id/device_id)
-SERVICE_SCHEMA = entity_service.ENTITY_SERVICE_SCHEMA
+# Accept both data.entity_id and target.entity_id (plus area/device selectors)
+SERVICE_SCHEMA = service.ENTITY_SERVICE_SCHEMA
 
 
 async def async_register_services(hass: HomeAssistant, entry: ConfigEntry, controller):
@@ -28,47 +28,49 @@ async def async_register_services(hass: HomeAssistant, entry: ConfigEntry, contr
 
     def get_controller(entity_id: str):
         """Return controller instance that owns the given entity_id."""
-        for data in hass.data[DOMAIN].values():
+        for data in hass.data.get(DOMAIN, {}).values():
+            ctrl = data.get("controller")
+            if not ctrl:
+                continue
             if (
-                data["controller"].dehumidifier_switch == entity_id
-                or "sensor.fuktstyrning_cost_savings" in entity_id
+                ctrl.dehumidifier_switch == entity_id
+                or ctrl.learning_sensor == entity_id
+                or entity_id.endswith("cost_savings")
             ):
-                return data["controller"]
+                return ctrl
         return None
 
     async def handle_update_schedule(call: ServiceCall):
-        entity_ids = await entity_service.async_extract_entity_ids(hass, call)
+        entity_ids = await service.async_extract_entity_ids(hass, call)
         for entity_id in entity_ids:
             ctrl = get_controller(entity_id)
-            if ctrl:
-                await ctrl._create_daily_schedule()
-                _LOGGER.info("Manually updated schedule for %s", entity_id)
-            else:
-                _LOGGER.error("Could not find controller for entity %s", entity_id)
+            if not ctrl:
+                _LOGGER.error("Could not find controller for %s", entity_id)
+                continue
+            await ctrl._create_daily_schedule()
+            _LOGGER.info("Manually updated schedule for %s", entity_id)
 
     async def handle_reset_cost_savings(call: ServiceCall):
-        entity_ids = await entity_service.async_extract_entity_ids(hass, call)
+        entity_ids = await service.async_extract_entity_ids(hass, call)
         for entity_id in entity_ids:
             ctrl = get_controller(entity_id)
-            if ctrl:
-                ctrl.cost_savings = 0
-                _LOGGER.info("Reset cost savings for %s", entity_id)
-            else:
-                _LOGGER.error("Could not find controller for entity %s", entity_id)
+            if not ctrl:
+                _LOGGER.error("Could not find controller for %s", entity_id)
+                continue
+            ctrl.cost_savings = 0
+            _LOGGER.info("Reset cost savings for %s", entity_id)
 
     async def handle_set_max_humidity(call: ServiceCall):
-        entity_ids = await entity_service.async_extract_entity_ids(hass, call)
+        entity_ids = await service.async_extract_entity_ids(hass, call)
         max_humidity = call.data[CONF_MAX_HUMIDITY]
         for entity_id in entity_ids:
             ctrl = get_controller(entity_id)
-            if ctrl:
-                ctrl.max_humidity = max_humidity
-                await ctrl._update_schedule()
-                _LOGGER.info(
-                    "Set max humidity to %s%% for %s", max_humidity, entity_id
-                )
-            else:
-                _LOGGER.error("Could not find controller for entity %s", entity_id)
+            if not ctrl:
+                _LOGGER.error("Could not find controller for %s", entity_id)
+                continue
+            ctrl.max_humidity = max_humidity
+            await ctrl._update_schedule()
+            _LOGGER.info("Set max humidity to %s%% for %s", max_humidity, entity_id)
 
     # Register services
     hass.services.async_register(
