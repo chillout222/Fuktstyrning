@@ -286,6 +286,12 @@ class FuktstyrningController:
             outdoor_temp = None
             indoor_temp = None
             weather = None
+            
+            # Get dehumidifier state
+            is_on = False
+            dehumidifier_state = self.hass.states.get(self.dehumidifier_switch)
+            if dehumidifier_state:
+                is_on = dehumidifier_state.state == "on"
         except Exception as e:
             _LOGGER.error(f"Error getting sensor data: {e}")
             return
