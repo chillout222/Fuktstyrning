@@ -74,8 +74,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     controller = hass.data[DOMAIN][entry.entry_id]["controller"]
     await controller.initialize()
     
-    # Set up platforms
-    hass.config_entries.async_setup_platforms(entry, PLATFORMS)
+    # Set up platforms - använder nytt API
+    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
     
     # Register services
     async def handle_update_schedule(call: ServiceCall) -> None:
@@ -268,42 +268,27 @@ class FuktstyrningController:
         """Update the operating schedule based on price and humidity."""
         _LOGGER.debug("Updating dehumidifier schedule")
         
-        # Get current humidity
-        humidity_state = self.hass.states.get(self.humidity_sensor)
-        if not humidity_state:
-            _LOGGER.error(f"Cannot get state of humidity sensor {self.humidity_sensor}")
-            return
-        
         try:
-            current_humidity = float(humidity_state.state)
-        except (ValueError, TypeError):
-            _LOGGER.error(f"Invalid humidity value: {humidity_state.state}")
+            # Get current humidity
+            humidity_state = self.hass.states.get(self.humidity_sensor)
+            if not humidity_state:
+                _LOGGER.error(f"Cannot get state of humidity sensor {self.humidity_sensor}")
+                return
+                
+            try:
+                current_humidity = float(humidity_state.state)
+            except (ValueError, TypeError):
+                _LOGGER.error(f"Invalid humidity value: {humidity_state.state}")
+                return
+                
+            # Get outdoor conditions for use in calculations
+            outdoor_humidity = None
+            outdoor_temp = None
+            indoor_temp = None
+            weather = None
+        except Exception as e:
+            _LOGGER.error(f"Error getting sensor data: {e}")
             return
-        
-        # Get dehumidifier state
-        dehumidifier_state = self.hass.states.get(self.dehumidifier_switch)
-        is_on = dehumidifier_state.state == "on" if dehumidifier_state else False
-        
-        # Get temperature and weather data if available for learning
-        indoor_temp = None
-        weather = None
-        if self.weather_entity:
-            weather_state = self.hass.states.get(self.weather_entity)
-            if weather_state:
-                weather = weather_state.state
-                indoor_temp = weather_state.attributes.get("temperature")
-        
-        # Get outdoor humidity and temperature if available
-        outdoor_humidity = None
-        outdoor_temp = None
-        
-        if self.outdoor_humidity_sensor:
-            humidity_state = self.hass.states.get(self.outdoor_humidity_sensor)
-            if humidity_state:
-                try:
-                    outdoor_humidity = float(humidity_state.state)
-                except (ValueError, TypeError):
-                    _LOGGER.error(f"Invalid outdoor humidity value: {humidity_state.state}")
         
         if self.outdoor_temp_sensor:
             temp_state = self.hass.states.get(self.outdoor_temp_sensor)
