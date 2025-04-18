@@ -68,38 +68,23 @@ class DehumidifierLearningModule:
             "average": (80, 120),   # 80-120 Wh per % humidity
             "poor": (120, 999)     # More than 120 Wh per % humidity
         }
-        
-        # Schedule loading existing learning data without blocking the event loop
-        self.hass.async_add_executor_job(self.load_learning_data)
-
-        # Kör initial analys efter att Home Assistant har startat (blockerar inte)
-        async def _run_later(event):  # pylint: disable=unused-argument
-            # heavy work i executor‑tråd
-            await self.hass.async_add_executor_job(self._initial_analysis)
-
-        self.hass.bus.async_listen_once("homeassistant_started", _run_later)
 
     async def initialize(self):
-        """Start the learning process."""
-        # Register periodic analysis
+        """Initialize the learning module and schedule periodic analysis."""
+        # Register periodic analysis twice daily
         self._unsub_interval = async_track_time_interval(
-            self.hass, 
+            self.hass,
             self._perform_analysis,
-            timedelta(hours=12)  # Run analysis twice daily
+            timedelta(hours=12)
         )
-
-    async def initialize(self):
-        """Initialize the learning module after Home Assistant is fully running."""
         try:
             # Load previous data if exists
             await self.hass.async_add_executor_job(self._load_humidity_data)
-            
-            # Schedule analysis only if not already done
+            # Perform initial analysis only once
             if not self._analysis_scheduled:
                 self._analysis_scheduled = True
                 await self._perform_analysis()
                 _LOGGER.debug("Initial learning analysis complete")
-                
         except Exception as exc:  # pylint: disable=broad-except
             _LOGGER.error("Learning module initialization failed: %s", exc)
 
