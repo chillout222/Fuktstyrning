@@ -19,6 +19,8 @@ from typing import Any, Dict, List, Optional
 import homeassistant.util.dt as dt_util
 from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
+from homeassistant.components.recorder import get_instance
+from homeassistant.helpers.storage import Store
 
 from .learning import DehumidifierLearningModule
 from .const import (
@@ -49,9 +51,6 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
         self.hass = hass
         self.entry = entry
 
-        # Learning module gets reference to controller so den kan läsa data
-        self.learning_module = DehumidifierLearningModule(hass, self)
-
         # Config options
         self.humidity_sensor: str | None = entry.data.get(CONF_HUMIDITY_SENSOR)
         self.price_sensor: str | None = entry.data.get(CONF_PRICE_SENSOR)
@@ -70,6 +69,7 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
         self.schedule_created_date: Optional[datetime] = None
         self.override_active: bool = False
         self.cost_savings: float = 0.0
+        self._store = Store(hass, 1, "fuktstyrning_controller_data")
         # Entity ID for the smart control switch
         self.smart_switch_entity_id: Optional[str] = None
 
@@ -78,17 +78,41 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
             "time_to_reduce": {"70_to_65": 30, "65_to_60": 45},
             "time_to_increase": {"60_to_65": 15, "65_to_70": 30},
         }
+        
+        # Learning module gets reference to controller so it can read data
+        self.learning_module = DehumidifierLearningModule(hass, self)
 
     # ------------------------------------------------------------------
     # Lifecycle helpers
     # ------------------------------------------------------------------
 
-    async def initialize(self) -> None:
+    async def setup(self) -> None:
+        """Set up the controller components."""
+        # Load stored data
+        stored_data = await self._store.async_load()
+        if stored_data:
+            self.dehumidifier_data = stored_data.get("dehumidifier_data", self.dehumidifier_data)
+            self.cost_savings = stored_data.get("cost_savings", 0.0)
+            _LOGGER.info("Loaded persistent controller data")
+        
+        # Initialize learning module
         await self.learning_module.initialize()
         await self._create_daily_schedule()
-        _LOGGER.debug("Fuktstyrning controller initialised")
+        _LOGGER.debug("Fuktstyrning controller initialized")
+
+    async def initialize(self) -> None:
+        """Legacy initialize - calls setup."""
+        await self.setup()
 
     async def shutdown(self) -> None:
+        # Save data
+        await self._store.async_save({
+            "dehumidifier_data": self.dehumidifier_data,
+            "cost_savings": self.cost_savings
+        })
+        _LOGGER.debug("Controller data saved")
+        
+        # Shut down learning module
         await self.learning_module.shutdown()
         _LOGGER.debug("Controller shutdown complete")
 
@@ -115,27 +139,35 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
         # override if humidity > threshold
         humidity_state = self.hass.states.get(self.humidity_sensor)
         if not humidity_state or humidity_state.state in ("unknown", "unavailable"):
+            _LOGGER.warning("Humidity sensor unavailable: %s", self.humidity_sensor)
             return
         try:
             current_humidity = float(humidity_state.state)
         except ValueError:
+            _LOGGER.warning("Invalid humidity value: %s", humidity_state.state)
             return
 
         # --- record humidity data after reading current_humidity ---
-        weather = self.hass.states.get(self.weather_entity).state if self.weather_entity else None
-        out_rh = self.hass.states.get(self.outdoor_humidity_sensor)
-        out_t = self.hass.states.get(self.outdoor_temp_sensor)
+        try:
+            weather = self.hass.states.get(self.weather_entity).state if self.weather_entity else None
+            out_rh = self.hass.states.get(self.outdoor_humidity_sensor)
+            out_t = self.hass.states.get(self.outdoor_temp_sensor)
+            temp = float(self.hass.states.get(self.humidity_sensor).attributes.get("temperature", "nan"))
+            power = float(self.hass.states.get(self.power_sensor).state) if self.power_sensor else None
+            energy = float(self.hass.states.get(self.energy_sensor).state) if self.energy_sensor else None
 
-        self.learning_module.record_humidity_data(
-            humidity=current_humidity,
-            dehumidifier_on=self.override_active or self.schedule.get(now.hour, False),
-            temperature=float(self.hass.states.get(self.humidity_sensor).attributes.get("temperature", "nan")),
-            weather=weather,
-            outdoor_humidity=float(out_rh.state) if out_rh else None,
-            outdoor_temp=float(out_t.state) if out_t else None,
-            power=float(self.hass.states.get(self.power_sensor).state) if self.power_sensor else None,
-            energy=float(self.hass.states.get(self.energy_sensor).state) if self.energy_sensor else None,
-        )
+            self.learning_module.record_humidity_data(
+                humidity=current_humidity,
+                dehumidifier_on=self.override_active or self.schedule.get(now.hour, False),
+                temperature=temp,
+                weather=weather,
+                outdoor_humidity=float(out_rh.state) if out_rh else None,
+                outdoor_temp=float(out_t.state) if out_t else None,
+                power=power,
+                energy=energy,
+            )
+        except Exception as exc:  # pylint: disable=broad-except
+            _LOGGER.error("Error recording humidity data: %s", exc)
 
         if current_humidity >= self.max_humidity and not self.override_active:
             await self._turn_on_dehumidifier()

@@ -10,6 +10,14 @@ import tempfile
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.event import async_track_time_interval
+from homeassistant.helpers.json import JSONEncoder
+from homeassistant.util import dt as dt_util
+
+try:
+    import aiofiles
+    HAS_AIOFILES = True
+except ImportError:
+    HAS_AIOFILES = False
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -21,8 +29,15 @@ class DehumidifierLearningModule:
         self.hass = hass
         self.controller = controller
         self.humidity_data = []
+        self.last_save_time = None
+        self.save_interval = timedelta(minutes=30)
+        
+        # Store learning data in .storage directory for persistence
         self.learning_data_file = os.path.join(
-            hass.config.path(), "fuktstyrning_learning_data.json"
+            hass.config.path(), ".storage", "fuktstyrning_learning_data.json"
+        )
+        self.data_file = os.path.join(
+            hass.config.path(), ".storage", "fuktstyrning_humidity_data.json"
         )
         self.min_data_points_for_update = 5
         self._unsub_interval = None
@@ -72,10 +87,17 @@ class DehumidifierLearningModule:
     def _initial_analysis(self):
         """Heavy first‑run analysis executed in executor thread."""
         try:
+            # Load previous data if exists
+            self.hass.async_add_executor_job(self._load_humidity_data)
+            
             # Schedule the async analysis in the event loop
             import asyncio
-            asyncio.run_coroutine_threadsafe(self._perform_analysis(), self.hass.loop)
-            _LOGGER.debug("Initial learning analysis scheduled")
+            try:
+                asyncio.run_coroutine_threadsafe(self._perform_analysis(), self.hass.loop)
+                _LOGGER.debug("Initial learning analysis scheduled")
+            except RuntimeError as e:
+                _LOGGER.error("Failed to schedule analysis: %s", e)
+                
         except Exception as exc:  # pylint: disable=broad-except
             _LOGGER.error("Initial analysis scheduling failed: %s", exc)
 
@@ -84,8 +106,57 @@ class DehumidifierLearningModule:
         if self._unsub_interval:
             self._unsub_interval()
             
-        # Save learning data one last time
+        # Save learning and humidity data one last time
         self.save_learning_data()
+        await self._save_humidity_data()
+
+    def _load_humidity_data(self):
+        """Load humidity data history from file."""
+        try:
+            if os.path.exists(self.data_file):
+                with open(self.data_file, "r") as f:
+                    data = json.load(f)
+                    if "humidity_data" in data:
+                        # Only load last 30 days of data
+                        cutoff = (dt_util.now() - timedelta(days=30)).isoformat()
+                        self.humidity_data = [
+                            point for point in data["humidity_data"]
+                            if "timestamp" in point and point["timestamp"] > cutoff
+                        ]
+                        _LOGGER.info("Loaded %d humidity data points", len(self.humidity_data))
+        except Exception as exc:  # pylint: disable=broad-except
+            _LOGGER.error("Failed to load humidity data: %s", exc)
+
+    async def _save_humidity_data(self):
+        """Save humidity data to file."""
+        now = dt_util.now()
+        
+        # Skip if last save was less than save_interval ago
+        if self.last_save_time and now - self.last_save_time < self.save_interval:
+            return
+            
+        try:
+            # Ensure directory exists
+            os.makedirs(os.path.dirname(self.data_file), exist_ok=True)
+            
+            if HAS_AIOFILES:
+                # Write to temporary file first, then replace
+                async with aiofiles.open(f"{self.data_file}.tmp", "w") as f:
+                    await f.write(json.dumps(
+                        {"humidity_data": self.humidity_data},
+                        cls=JSONEncoder
+                    ))
+                os.replace(f"{self.data_file}.tmp", self.data_file)
+            else:
+                # Fallback if aiofiles not available
+                with open(f"{self.data_file}.tmp", "w") as f:
+                    json.dump({"humidity_data": self.humidity_data}, f, cls=JSONEncoder)
+                os.replace(f"{self.data_file}.tmp", self.data_file)
+                
+            self.last_save_time = now
+            _LOGGER.debug("Saved %d humidity data points", len(self.humidity_data))
+        except Exception as exc:  # pylint: disable=broad-except
+            _LOGGER.error("Failed to save humidity data: %s", exc)
 
     def load_learning_data(self):
         """Load learning data from file."""
@@ -189,19 +260,41 @@ class DehumidifierLearningModule:
     # Helper to predict dehumidifier reduction rate including dynamic impacts
     def predict_reduction_rate(self, start_humidity: float, temperature: float = None, weather: str = None) -> float:
         """Return %‑enheter per timme som modellen tror avfuktaren klarar, med justering för väder och temperatur."""
-        key = f"{round(start_humidity)}_to_{round(start_humidity)-1}"
-        minutes = self.controller.dehumidifier_data["time_to_reduce"].get(key, 30)
-        rate = 60 / minutes
-        # Weather impact
+        # Default to 30 min (2%/hour) if no better data available
+        try:
+            key = f"{round(start_humidity)}_to_{round(start_humidity)-1}"
+            minutes = self.controller.dehumidifier_data.get("time_to_reduce", {}).get(key, 30)
+            if not isinstance(minutes, (int, float)) or minutes <= 0:
+                _LOGGER.warning("Invalid reduction time for humidity %s: %s", start_humidity, minutes)
+                minutes = 30
+        except (KeyError, TypeError, ValueError) as exc:
+            _LOGGER.warning("Error getting reduction time: %s", exc)
+            minutes = 30
+            
+        rate = 60 / minutes  # Convert minutes per % to % per hour
+        
+        # Apply weather impact if available
         if weather:
-            rate *= self.controller.dehumidifier_data.get("weather_impact", {}).get(weather, 1)
-        # Temperature impact
-        if temperature is not None:
-            for cat, (min_t, max_t) in self.temp_categories.items():
-                if min_t <= temperature < max_t:
-                    rate *= self.controller.dehumidifier_data.get("temp_impact", {}).get(cat, 1)
-                    break
-        return rate
+            try:
+                weather_factor = self.controller.dehumidifier_data.get("weather_impact", {}).get(weather, 1.0)
+                if isinstance(weather_factor, (int, float)) and weather_factor > 0:
+                    rate *= weather_factor
+            except (KeyError, TypeError) as exc:
+                _LOGGER.debug("No weather impact data for %s: %s", weather, exc)
+                
+        # Apply temperature impact if available
+        if temperature is not None and not math.isnan(temperature):
+            try:
+                for cat, (min_t, max_t) in self.temp_categories.items():
+                    if min_t <= temperature < max_t:
+                        temp_factor = self.controller.dehumidifier_data.get("temp_impact", {}).get(cat, 1.0)
+                        if isinstance(temp_factor, (int, float)) and temp_factor > 0:
+                            rate *= temp_factor
+                        break
+            except (KeyError, TypeError) as exc:
+                _LOGGER.debug("No temperature impact data for %.1f°C: %s", temperature, exc)
+                
+        return max(0.5, rate)  # Ensure minimum rate of 0.5%/hour
 
     def predict_hours_needed(
         self,
