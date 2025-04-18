@@ -53,6 +53,13 @@ class DehumidifierLearningModule:
         # Schedule loading existing learning data without blocking the event loop
         self.hass.async_add_executor_job(self.load_learning_data)
 
+        # Kör initial analys efter att Home Assistant har startat (blockerar inte)
+        async def _run_later(event):  # pylint: disable=unused-argument
+            # heavy work i executor‑tråd
+            await self.hass.async_add_executor_job(self._initial_analysis)
+
+        self.hass.bus.async_listen_once("homeassistant_started", _run_later)
+
     async def initialize(self):
         """Start the learning process."""
         # Register periodic analysis
@@ -61,17 +68,15 @@ class DehumidifierLearningModule:
             self._perform_analysis,
             timedelta(hours=12)  # Run analysis twice daily
         )
-        
-        # Also schedule a delayed initial analysis
-        self.hass.async_create_task(
-            self._delayed_initial_analysis()
-        )
-    
-    async def _delayed_initial_analysis(self):
-        """Run initial analysis after a delay to gather some data first."""
-        await asyncio.sleep(3600)  # Wait 1 hour
-        await self._perform_analysis(datetime.now())
-        
+
+    def _initial_analysis(self):
+        """Heavy first‑run analysis executed in executor thread."""
+        try:
+            self._perform_full_analysis()
+            _LOGGER.debug("Initial learning analysis complete")
+        except Exception as exc:  # pylint: disable=broad-except
+            _LOGGER.error("Initial analysis failed: %s", exc)
+
     async def shutdown(self):
         """Shut down the learning module."""
         if self._unsub_interval:

@@ -75,11 +75,8 @@ async def async_register_services(
             ctrl = data.get("controller")
             if not ctrl:
                 continue
-            if (
-                ctrl.dehumidifier_switch == entity_id
-                or ctrl.learning_sensor == entity_id
-                or entity_id.endswith("cost_savings")
-            ):
+            # Match dehumidifier switch or cost savings sensor
+            if ctrl.dehumidifier_switch == entity_id or entity_id.endswith("cost_savings"):
                 return ctrl
         return None
 
