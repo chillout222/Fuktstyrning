@@ -22,6 +22,7 @@ from .const import (
     SERVICE_SET_MAX_HUMIDITY,
     CONF_MAX_HUMIDITY,
     ATTR_ENTITY_ID,
+    SMART_SWITCH_UNIQUE_ID,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -77,8 +78,13 @@ async def async_register_services(
                 continue
             # Match physical switch, smart-control switch or cost savings sensor
             if (
+                # Fysisk väggplugg (direktstyrning)
                 ctrl.dehumidifier_switch == entity_id
+                # Logisk smart‑switch (sätts så fort switch‑plattformen laddas)
                 or ctrl.smart_switch_entity_id == entity_id
+                # Fallback om tjänsten hinner gå innan raden ovan är satt
+                or entity_id.endswith(SMART_SWITCH_UNIQUE_ID)
+                # Kost‑sensor
                 or entity_id.endswith("cost_savings")
             ):
                 return ctrl
