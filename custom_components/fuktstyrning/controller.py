@@ -4,7 +4,7 @@
 En komplett, körbar version som:
 * skickar **self** till `DehumidifierLearningModule`
 * hanterar `schedule_created_date`, `schedule` som `dict[int, bool]`
-* exponerar `cost_savings` för sensorerna
+* exponerar `cost_savings` för sensorerna 
 * innehåller alla hjälpfunktioner (prisprognos, optimering, on/off etc.)
 
 Drop‑in‑ersättning för `custom_components/fuktstyrning/controller.py`.
@@ -51,7 +51,7 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
         # Learning module gets reference to controller so den kan läsa data
         self.learning_module = DehumidifierLearningModule(hass, self)
 
-        # Config options (entities etc.)
+        # Config options
         self.humidity_sensor: str | None = entry.data.get(CONF_HUMIDITY_SENSOR)
         self.price_sensor: str | None = entry.data.get(CONF_PRICE_SENSOR)
         self.dehumidifier_switch: str | None = entry.data.get(CONF_DEHUMIDIFIER_SWITCH)
@@ -65,33 +65,41 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
         self.max_humidity: float = entry.data.get(CONF_MAX_HUMIDITY, DEFAULT_MAX_HUMIDITY)
 
         # Runtime state
-        self.schedule: Dict[int, bool] = {}  # {hour -> should_run}
+        self.schedule: Dict[int, bool] = {}
         self.schedule_created_date: Optional[datetime] = None
         self.override_active: bool = False
         self.cost_savings: float = 0.0
 
-        # Placeholder for learned timing data (simplified)
+        # simple defaults for learning
         self.dehumidifier_data: Dict[str, Any] = {
             "time_to_reduce": {"70_to_65": 30, "65_to_60": 45},
             "time_to_increase": {"60_to_65": 15, "65_to_70": 30},
         }
 
     # ------------------------------------------------------------------
-    # Lifecycle helpers (called from __init__.py in integration)
+    # Lifecycle helpers
     # ------------------------------------------------------------------
 
     async def initialize(self) -> None:
         await self.learning_module.initialize()
-        # Create first schedule immediately
         await self._create_daily_schedule()
         _LOGGER.debug("Fuktstyrning controller initialised")
 
     async def shutdown(self) -> None:
         await self.learning_module.shutdown()
-        _LOGGER.debug("Fuktstyrning controller shutdown complete")
+        _LOGGER.debug("Controller shutdown complete")
 
     # ------------------------------------------------------------------
-    # Core loop (invoked every minute by integration)
+    # Public entry for Scheduler (keeps original name)
+    # ------------------------------------------------------------------
+
+    async def _update_schedule(self, now=None):  # pylint: disable=unused-argument
+        """Called by Scheduler every N minutes – wraps async_tick()."""
+        await self.async_tick()
+
+    # ------------------------------------------------------------------
+    # Core loop
+    # ------------------------------------------------------------------ (invoked every minute by integration)
     # ------------------------------------------------------------------
 
     async def async_tick(self) -> None:
