@@ -29,6 +29,10 @@ from .const import (
     SENSOR_SAVINGS_NAME,
     SENSOR_HUMIDITY_PREDICTION_UNIQUE_ID,
     SENSOR_HUMIDITY_PREDICTION_NAME,
+    SENSOR_DEW_POINT_UNIQUE_ID,
+    SENSOR_DEW_POINT_NAME,
+    SENSOR_POWER_UNIQUE_ID,
+    SENSOR_POWER_NAME,
     # Attribute keys
     ATTR_SCHEDULE,
     ATTR_OVERRIDE_ACTIVE,
@@ -58,6 +62,8 @@ async def async_setup_entry(
         CostSavingsSensor(hass, entry, controller),
         HumidityPredictionSensor(hass, entry, controller),
         LearningModelSensor(hass, entry, controller),
+        DewPointSensor(hass, entry, controller),
+        PowerSensor(hass, entry, controller),
     ]
     async_add_entities(entities)
 
@@ -243,3 +249,114 @@ class LearningModelSensor(SensorEntity):
             self._attr_native_value = f"{model_data.get('data_points', 0)} pts"
         except Exception as exc:  # pylint: disable=broad-except
             _LOGGER.error("LearningModelSensor update error: %s", exc)
+
+
+# -----------------------------------------------------------------------------
+# Dew Point sensor
+# -----------------------------------------------------------------------------
+
+
+class DewPointSensor(SensorEntity):
+    """Sensor that calculates the dew point based on temperature and humidity."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:water-thermometer"
+    _attr_device_class = SensorDeviceClass.TEMPERATURE
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "°C"
+    
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, controller):
+        self.hass = hass
+        self.entry = entry
+        self.controller = controller
+        
+        self._humidity_entity = "sensor.aqara_t1_innerst_luftfuktighet"
+        self._temperature_entity = "sensor.aqara_t1_innerst_temperatur"
+        
+        self._attr_unique_id = f"{entry.entry_id}_{SENSOR_DEW_POINT_UNIQUE_ID}"
+        self._attr_name = SENSOR_DEW_POINT_NAME
+        self._attr_native_value = None
+        
+    async def async_update(self) -> None:
+        """Update the dew point calculation."""
+        try:
+            # Get humidity
+            humidity_state = self.hass.states.get(self._humidity_entity)
+            if not humidity_state or humidity_state.state in ("unknown", "unavailable"):
+                return
+                
+            # Get temperature
+            temp_state = self.hass.states.get(self._temperature_entity)
+            if not temp_state or temp_state.state in ("unknown", "unavailable"):
+                return
+                
+            try:
+                humidity = float(humidity_state.state)
+                temperature = float(temp_state.state)
+            except ValueError:
+                return
+                
+            # Calculate dew point using Magnus-Tetens approximation
+            alpha = 17.27
+            beta = 237.7  # °C
+            
+            # Calculate gamma term
+            gamma = (alpha * temperature) / (beta + temperature) + math.log(humidity / 100.0)
+            
+            # Calculate dew point
+            dew_point = (beta * gamma) / (alpha - gamma)
+            
+            self._attr_native_value = round(dew_point, 1)
+        except Exception as exc:  # pylint: disable=broad-except
+            _LOGGER.error("DewPointSensor update error: %s", exc)
+
+
+# -----------------------------------------------------------------------------
+# Power Usage sensor
+# -----------------------------------------------------------------------------
+
+
+class PowerSensor(SensorEntity):
+    """Sensor that tracks power usage of the dehumidifier."""
+
+    _attr_has_entity_name = True
+    _attr_icon = "mdi:flash"
+    _attr_device_class = SensorDeviceClass.POWER
+    _attr_state_class = SensorStateClass.MEASUREMENT
+    _attr_native_unit_of_measurement = "W"
+    
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, controller):
+        self.hass = hass
+        self.entry = entry
+        self.controller = controller
+        
+        self._power_entity = "sensor.lumi_lumi_plug_maeu01_active_power"
+        
+        self._attr_unique_id = f"{entry.entry_id}_{SENSOR_POWER_UNIQUE_ID}"
+        self._attr_name = SENSOR_POWER_NAME
+        self._attr_native_value = None
+        self._attr_extra_state_attributes = {
+            ATTR_ENERGY_EFFICIENCY: None,
+        }
+        
+    async def async_update(self) -> None:
+        """Update the power usage."""
+        try:
+            # Get current power
+            power_state = self.hass.states.get(self._power_entity)
+            if not power_state or power_state.state in ("unknown", "unavailable"):
+                return
+                
+            try:
+                power = float(power_state.state)
+                self._attr_native_value = power
+            except ValueError:
+                return
+                
+            # Add efficiency data if available
+            model = self.controller.learning_module.get_current_model()
+            if "energy_efficiency" in model:
+                self._attr_extra_state_attributes[ATTR_ENERGY_EFFICIENCY] = model["energy_efficiency"]
+                
+        except Exception as exc:  # pylint: disable=broad-except
+            _LOGGER.error("PowerSensor update error: %s", exc)

@@ -44,6 +44,8 @@ SMART_SWITCH_UNIQUE_ID = "dehumidifier_smart_control"  # unique ID for the smart
 SENSOR_SAVINGS_UNIQUE_ID = "cost_savings"
 SENSOR_HUMIDITY_PREDICTION_UNIQUE_ID = "humidity_prediction"
 BINARY_SENSOR_OPTIMAL_RUNNING_UNIQUE_ID = "optimal_running"
+SENSOR_DEW_POINT_UNIQUE_ID = "dew_point"
+SENSOR_POWER_UNIQUE_ID = "power"
 
 # Display names
 CONTROLLER_NAME = "Dehumidifier Controller"
@@ -51,3 +53,5 @@ SWITCH_NAME = "Dehumidifier Smart Control"
 SENSOR_SAVINGS_NAME = "Dehumidifier Cost Savings"
 SENSOR_HUMIDITY_PREDICTION_NAME = "Predicted Humidity"
 BINARY_SENSOR_OPTIMAL_RUNNING_NAME = "Optimal Running Period"
+SENSOR_DEW_POINT_NAME = "Dew Point"
+SENSOR_POWER_NAME = "Power Usage"
