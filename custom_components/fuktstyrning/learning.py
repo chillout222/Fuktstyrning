@@ -11,7 +11,10 @@ import tempfile
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.json import JSONEncoder
+from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
+
+from .const import DOMAIN, LEARNING_STORAGE_KEY
 
 try:
     import aiofiles
@@ -36,10 +39,10 @@ class DehumidifierLearningModule:
         # Flag to make sure analysis is only done once
         self._analysis_scheduled = False
         
-        # Store learning data in .storage directory for persistence
-        self.learning_data_file = os.path.join(
-            hass.config.path(), ".storage", "fuktstyrning_learning_data.json"
-        )
+        # Use Storage helper for learning data
+        self._store = Store(hass, 1, LEARNING_STORAGE_KEY)
+        
+        # Keep raw humidity data in a separate file
         self.data_file = os.path.join(
             hass.config.path(), ".storage", "fuktstyrning_humidity_data.json"
         )
@@ -77,9 +80,24 @@ class DehumidifierLearningModule:
             self._perform_analysis,
             timedelta(hours=12)
         )
+        
+        # Auto-save data every 10 minutes
+        async_track_time_interval(
+            self.hass,
+            lambda *_: self.hass.async_create_task(self.save_learning_data()),
+            timedelta(minutes=10)
+        )
+        
         try:
-            # Load previous data if exists
+            # Load previous data
+            stored_data = await self._store.async_load()
+            if stored_data:
+                _LOGGER.debug("Loaded stored learning data (%d keys)", len(stored_data))
+                self.controller.dehumidifier_data.update(stored_data)
+            
+            # Load humidity data history
             await self.hass.async_add_executor_job(self._load_humidity_data)
+            
             # Perform initial analysis only once
             if not self._analysis_scheduled:
                 self._analysis_scheduled = True
@@ -94,7 +112,7 @@ class DehumidifierLearningModule:
             self._unsub_interval()
             
         # Save learning and humidity data one last time
-        self.save_learning_data()
+        await self.save_learning_data()
         await self._save_humidity_data()
 
     def _load_humidity_data(self):
@@ -145,57 +163,47 @@ class DehumidifierLearningModule:
         except Exception as exc:  # pylint: disable=broad-except
             _LOGGER.error("Failed to save humidity data: %s", exc)
 
-    def load_learning_data(self):
-        """Load learning data from file."""
+    async def load_learning_data(self):
+        """Load learning data from store."""
         try:
-            if os.path.exists(self.learning_data_file):
-                with open(self.learning_data_file, "r") as f:
-                    data = json.load(f)
-                    
+            stored_data = await self._store.async_load()
+            if stored_data:
                 # Update controller with learned data
-                if "time_to_reduce" in data:
-                    self.controller.dehumidifier_data["time_to_reduce"] = data["time_to_reduce"]
-                if "time_to_increase" in data:
-                    self.controller.dehumidifier_data["time_to_increase"] = data["time_to_increase"]
-                if "weather_impact" in data:
-                    self.controller.dehumidifier_data["weather_impact"] = data["weather_impact"]
-                if "temp_impact" in data:
-                    self.controller.dehumidifier_data["temp_impact"] = data["temp_impact"]
-                if "humidity_diff_impact" in data:
-                    self.controller.dehumidifier_data["humidity_diff_impact"] = data["humidity_diff_impact"]
-                if "energy_efficiency" in data:
-                    self.controller.dehumidifier_data["energy_efficiency"] = data["energy_efficiency"]
-                    
-                _LOGGER.info("Loaded learning data from file")
-        except Exception as e:
-            _LOGGER.error(f"Error loading learning data: {e}")
+                if "time_to_reduce" in stored_data:
+                    self.controller.dehumidifier_data["time_to_reduce"] = stored_data["time_to_reduce"]
+                if "time_to_increase" in stored_data:
+                    self.controller.dehumidifier_data["time_to_increase"] = stored_data["time_to_increase"]
+                if "weather_impact" in stored_data:
+                    self.controller.dehumidifier_data["weather_impact"] = stored_data["weather_impact"]
+                if "temp_impact" in stored_data:
+                    self.controller.dehumidifier_data["temp_impact"] = stored_data["temp_impact"]
+                if "humidity_diff_impact" in stored_data:
+                    self.controller.dehumidifier_data["humidity_diff_impact"] = stored_data["humidity_diff_impact"]
+                if "energy_efficiency" in stored_data:
+                    self.controller.dehumidifier_data["energy_efficiency"] = stored_data["energy_efficiency"]
+                
+                _LOGGER.debug("Loaded learning data from store")
+        except Exception as exc:  # pylint: disable=broad-except
+            _LOGGER.error("Failed to load learning data: %s", exc)
 
-    def save_learning_data(self):
-        """Save learning data to file."""
+    async def save_learning_data(self):
+        """Save learning data to store."""
         try:
+            # Prepare data for saving
             data = {
-                "time_to_reduce": self.controller.dehumidifier_data["time_to_reduce"],
-                "time_to_increase": self.controller.dehumidifier_data["time_to_increase"]
+                "time_to_reduce": self.controller.dehumidifier_data.get("time_to_reduce", {}),
+                "time_to_increase": self.controller.dehumidifier_data.get("time_to_increase", {}),
+                "weather_impact": self.controller.dehumidifier_data.get("weather_impact", {}),
+                "temp_impact": self.controller.dehumidifier_data.get("temp_impact", {}),
+                "humidity_diff_impact": self.controller.dehumidifier_data.get("humidity_diff_impact", {}),
+                "energy_efficiency": self.controller.dehumidifier_data.get("energy_efficiency", {}),
             }
             
-            # Add weather and temperature impact if available
-            if "weather_impact" in self.controller.dehumidifier_data:
-                data["weather_impact"] = self.controller.dehumidifier_data["weather_impact"]
-            if "temp_impact" in self.controller.dehumidifier_data:
-                data["temp_impact"] = self.controller.dehumidifier_data["temp_impact"]
-            if "humidity_diff_impact" in self.controller.dehumidifier_data:
-                data["humidity_diff_impact"] = self.controller.dehumidifier_data["humidity_diff_impact"]
-            if "energy_efficiency" in self.controller.dehumidifier_data:
-                data["energy_efficiency"] = self.controller.dehumidifier_data["energy_efficiency"]
-                
-            # Atomic write to avoid corruption
-            tmp_file = self.learning_data_file + ".tmp"
-            with open(tmp_file, "w") as f:
-                json.dump(data, f)
-            os.replace(tmp_file, self.learning_data_file)
-            _LOGGER.info("Saved learning data to file atomically")
-        except Exception as e:
-            _LOGGER.error(f"Error saving learning data: {e}")
+            # Save using storage helper
+            await self._store.async_save(data)
+            _LOGGER.debug("Saved learning data to store")
+        except Exception as exc:  # pylint: disable=broad-except
+            _LOGGER.error("Failed to save learning data: %s", exc)
 
     def record_humidity_data(self, humidity, dehumidifier_on, temperature=None, weather=None, 
                            outdoor_humidity=None, outdoor_temp=None, power=None, energy=None):
@@ -362,8 +370,8 @@ class DehumidifierLearningModule:
         # Analyze energy efficiency
         self._analyze_energy_efficiency()
         
-        # Save updated model to file
-        self.save_learning_data()
+        # Save updated model to store
+        await self.save_learning_data()
 
     def _analyze_humidity_reduction(self):
         """Analyze how fast humidity decreases when dehumidifier is on."""

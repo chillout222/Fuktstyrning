@@ -55,3 +55,7 @@ SENSOR_HUMIDITY_PREDICTION_NAME = "Predicted Humidity"
 BINARY_SENSOR_OPTIMAL_RUNNING_NAME = "Optimal Running Period"
 SENSOR_DEW_POINT_NAME = "Dew Point"
 SENSOR_POWER_NAME = "Power Usage"
+
+# Storage
+CONTROLLER_STORAGE_KEY = "fuktstyrning_controller_data"
+LEARNING_STORAGE_KEY = "fuktstyrning_learning_data"
