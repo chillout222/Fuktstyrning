@@ -40,6 +40,7 @@ ATTR_ENERGY_EFFICIENCY = "energy_efficiency"
 # Unique IDs
 CONTROLLER_UNIQUE_ID = "controller"
 SWITCH_UNIQUE_ID = "dehumidifier_switch"
+SMART_SWITCH_UNIQUE_ID = "dehumidifier_smart_control"  # unique ID for the smart-control switch
 SENSOR_SAVINGS_UNIQUE_ID = "cost_savings"
 SENSOR_HUMIDITY_PREDICTION_UNIQUE_ID = "humidity_prediction"
 BINARY_SENSOR_OPTIMAL_RUNNING_UNIQUE_ID = "optimal_running"

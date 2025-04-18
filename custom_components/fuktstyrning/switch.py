@@ -15,6 +15,7 @@ from homeassistant.const import (
 from .const import (
     DOMAIN,
     SWITCH_UNIQUE_ID,
+    SMART_SWITCH_UNIQUE_ID,
     SWITCH_NAME,
     ATTR_OVERRIDE_ACTIVE,
 )
@@ -48,7 +49,7 @@ class DehumidifierControlSwitch(SwitchEntity):
         self.hass = hass
         self.entry = entry
         self.controller = controller
-        self._attr_unique_id = f"{entry.entry_id}_{SWITCH_UNIQUE_ID}"
+        self._attr_unique_id = f"{entry.entry_id}_{SMART_SWITCH_UNIQUE_ID}"
         self._attr_name = SWITCH_NAME
         self._is_on = True
         self._attr_extra_state_attributes = {
