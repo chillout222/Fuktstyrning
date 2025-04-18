@@ -86,23 +86,26 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
     # Lifecycle helpers
     # ------------------------------------------------------------------
 
+    async def initialize(self) -> None:
+        """Initialize the controller."""
+        self._store = Store(self.hass, 1, CONTROLLER_STORAGE_KEY)
+        stored_data = await self._store.async_load()
+        
+        if stored_data:
+            self.dehumidifier_data = stored_data.get("dehumidifier_data", {})
+            self.cost_savings = stored_data.get("cost_savings", 0.0)
+            _LOGGER.debug("Loaded controller data: %s", stored_data)
+        
+        # First initialize learning module
+        await self.learning_module.initialize()
+        
+        # Then setup controller
+        await self.setup()
+
     async def setup(self) -> None:
         """Set up the controller components."""
-        # Load stored data
-        stored_data = await self._store.async_load()
-        if stored_data:
-            self.dehumidifier_data = stored_data.get("dehumidifier_data", self.dehumidifier_data)
-            self.cost_savings = stored_data.get("cost_savings", 0.0)
-            _LOGGER.info("Loaded persistent controller data")
-        
-        # Initialize learning module
-        await self.learning_module.initialize()
         await self._create_daily_schedule()
         _LOGGER.debug("Fuktstyrning controller initialized")
-
-    async def initialize(self) -> None:
-        """Legacy initialize - calls setup."""
-        await self.setup()
 
     async def shutdown(self) -> None:
         # Save data

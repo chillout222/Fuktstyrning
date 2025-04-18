@@ -28,9 +28,13 @@ class DehumidifierLearningModule:
         """Initialize the learning module."""
         self.hass = hass
         self.controller = controller
+        self.data_store = None
+        
+        # Humidity data for learning
         self.humidity_data = []
-        self.last_save_time = None
-        self.save_interval = timedelta(minutes=30)
+        
+        # Flag to make sure analysis is only done once
+        self._analysis_scheduled = False
         
         # Store learning data in .storage directory for persistence
         self.learning_data_file = os.path.join(
@@ -84,19 +88,20 @@ class DehumidifierLearningModule:
             timedelta(hours=12)  # Run analysis twice daily
         )
 
-    def _initial_analysis(self):
-        """Heavy first‑run analysis executed in executor thread."""
+    async def initialize(self):
+        """Initialize the learning module after Home Assistant is fully running."""
         try:
             # Load previous data if exists
-            self.hass.async_add_executor_job(self._load_humidity_data)
+            await self.hass.async_add_executor_job(self._load_humidity_data)
             
-            # Instead of trying to schedule directly, add a job to the HA executor
-            # that will run once the event loop is available
-            self.hass.async_create_task(self._perform_analysis())
-            _LOGGER.debug("Initial learning analysis scheduled via create_task")
+            # Schedule analysis only if not already done
+            if not self._analysis_scheduled:
+                self._analysis_scheduled = True
+                await self._perform_analysis()
+                _LOGGER.debug("Initial learning analysis complete")
                 
         except Exception as exc:  # pylint: disable=broad-except
-            _LOGGER.error("Initial analysis scheduling failed: %s", exc)
+            _LOGGER.error("Learning module initialization failed: %s", exc)
 
     async def shutdown(self):
         """Shut down the learning module."""
