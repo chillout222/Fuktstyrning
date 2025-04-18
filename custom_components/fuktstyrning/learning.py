@@ -270,15 +270,54 @@ class DehumidifierLearningModule:
     # Helper to predict dehumidifier reduction rate including dynamic impacts
     def predict_reduction_rate(self, start_humidity: float, temperature: float = None, weather: str = None) -> float:
         """Return %‑enheter per timme som modellen tror avfuktaren klarar, med justering för väder och temperatur."""
-        # Default to 30 min (2%/hour) if no better data available
+        # Get reduction times from learned data
         try:
-            key = f"{round(start_humidity)}_to_{round(start_humidity)-1}"
-            minutes = self.controller.dehumidifier_data.get("time_to_reduce", {}).get(key, 30)
-            if not isinstance(minutes, (int, float)) or minutes <= 0:
-                _LOGGER.warning("Invalid reduction time for humidity %s: %s", start_humidity, minutes)
-                minutes = 30
+            # Try to get exact match first
+            rounded_humidity = round(start_humidity)
+            time_to_reduce_data = self.controller.dehumidifier_data.get("time_to_reduce", {})
+            
+            # Check if we have any data at all
+            if not time_to_reduce_data:
+                _LOGGER.debug("No time_to_reduce data available, using default rate")
+                minutes = 30  # Default to 30 min (2%/hour) if no data
+            else:
+                # Try exact match
+                key = f"{rounded_humidity}_to_{rounded_humidity-1}"
+                if key in time_to_reduce_data:
+                    minutes = time_to_reduce_data[key]
+                    _LOGGER.debug("Using exact reduction time match for %s: %.1f minutes", key, minutes)
+                else:
+                    # Look for nearby humidity values (within ±5%)
+                    nearby_keys = []
+                    for existing_key in time_to_reduce_data:
+                        try:
+                            parts = existing_key.split('_to_')
+                            from_humidity = int(parts[0])
+                            # Use nearby values that are within reasonable range and preferably higher
+                            # (since reduction gets slower at lower humidity levels)
+                            if abs(from_humidity - rounded_humidity) <= 5:
+                                nearby_keys.append((existing_key, abs(from_humidity - rounded_humidity)))
+                        except (ValueError, IndexError):
+                            continue
+                    
+                    if nearby_keys:
+                        # Sort by proximity (closest first)
+                        nearby_keys.sort(key=lambda x: x[1])
+                        closest_key = nearby_keys[0][0]
+                        minutes = time_to_reduce_data[closest_key]
+                        _LOGGER.debug("Using nearby reduction time for %s: %.1f minutes from %s", 
+                                     key, minutes, closest_key)
+                    else:
+                        # No nearby keys, use default
+                        minutes = 30
+                        _LOGGER.debug("No nearby reduction time found for %s, using default", key)
+                        
+                # Validate value
+                if not isinstance(minutes, (int, float)) or minutes <= 0:
+                    _LOGGER.warning("Invalid reduction time: %s", minutes)
+                    minutes = 30
         except (KeyError, TypeError, ValueError) as exc:
-            _LOGGER.warning("Error getting reduction time: %s", exc)
+            _LOGGER.warning("Error in reduction time lookup: %s", exc)
             minutes = 30
             
         rate = 60 / minutes  # Convert minutes per % to % per hour
