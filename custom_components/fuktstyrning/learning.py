@@ -8,7 +8,7 @@ import asyncio
 import math
 import tempfile
 
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_track_time_interval
 from homeassistant.helpers.json import JSONEncoder
 from homeassistant.helpers.storage import Store
@@ -40,6 +40,7 @@ class DehumidifierLearningModule:
         self._analysis_scheduled = False
         
         # Use Storage helper for learning data
+        # Version=1, increment to version=2 if data structure changes in future
         self._store = Store(hass, 1, LEARNING_STORAGE_KEY)
         
         # Keep raw humidity data in a separate file
@@ -82,9 +83,14 @@ class DehumidifierLearningModule:
         )
         
         # Auto-save data every 10 minutes
+        @callback
+        async def _autosave_callback(_now):
+            """Autosave learning data to storage."""
+            await self.save_learning_data()
+            
         async_track_time_interval(
             self.hass,
-            lambda *_: self.hass.async_create_task(self.save_learning_data()),
+            _autosave_callback,
             timedelta(minutes=10)
         )
         
@@ -122,13 +128,16 @@ class DehumidifierLearningModule:
                 with open(self.data_file, "r") as f:
                     data = json.load(f)
                     if "humidity_data" in data:
-                        # Only load last 30 days of data
-                        cutoff = (dt_util.now() - timedelta(days=30)).isoformat()
+                        # Only load last 60 days of data for better trend analysis
+                        # while keeping file size manageable
+                        cutoff = (dt_util.now() - timedelta(days=60)).isoformat()
                         self.humidity_data = [
                             point for point in data["humidity_data"]
                             if "timestamp" in point and point["timestamp"] > cutoff
                         ]
-                        _LOGGER.info("Loaded %d humidity data points", len(self.humidity_data))
+                        _LOGGER.info("Loaded %d humidity data points (60 day history)", len(self.humidity_data))
+        except json.JSONDecodeError as json_error:
+            _LOGGER.error("Failed to decode humidity data JSON: %s", json_error)
         except Exception as exc:  # pylint: disable=broad-except
             _LOGGER.error("Failed to load humidity data: %s", exc)
 
@@ -169,20 +178,26 @@ class DehumidifierLearningModule:
             stored_data = await self._store.async_load()
             if stored_data:
                 # Update controller with learned data
-                if "time_to_reduce" in stored_data:
-                    self.controller.dehumidifier_data["time_to_reduce"] = stored_data["time_to_reduce"]
-                if "time_to_increase" in stored_data:
-                    self.controller.dehumidifier_data["time_to_increase"] = stored_data["time_to_increase"]
-                if "weather_impact" in stored_data:
-                    self.controller.dehumidifier_data["weather_impact"] = stored_data["weather_impact"]
-                if "temp_impact" in stored_data:
-                    self.controller.dehumidifier_data["temp_impact"] = stored_data["temp_impact"]
-                if "humidity_diff_impact" in stored_data:
-                    self.controller.dehumidifier_data["humidity_diff_impact"] = stored_data["humidity_diff_impact"]
-                if "energy_efficiency" in stored_data:
-                    self.controller.dehumidifier_data["energy_efficiency"] = stored_data["energy_efficiency"]
-                
-                _LOGGER.debug("Loaded learning data from store")
+                try:
+                    if "time_to_reduce" in stored_data:
+                        self.controller.dehumidifier_data["time_to_reduce"] = stored_data["time_to_reduce"]
+                    if "time_to_increase" in stored_data:
+                        self.controller.dehumidifier_data["time_to_increase"] = stored_data["time_to_increase"]
+                    if "weather_impact" in stored_data:
+                        self.controller.dehumidifier_data["weather_impact"] = stored_data["weather_impact"]
+                    if "temp_impact" in stored_data:
+                        self.controller.dehumidifier_data["temp_impact"] = stored_data["temp_impact"]
+                    if "humidity_diff_impact" in stored_data:
+                        self.controller.dehumidifier_data["humidity_diff_impact"] = stored_data["humidity_diff_impact"]
+                    if "energy_efficiency" in stored_data:
+                        self.controller.dehumidifier_data["energy_efficiency"] = stored_data["energy_efficiency"]
+                    
+                    _LOGGER.debug("Loaded learning data from store (%d keys)", len(stored_data))
+                except (ValueError, KeyError, TypeError) as schema_error:
+                    # Handle future schema migration errors
+                    _LOGGER.warning("Schema error in stored data: %s", schema_error)
+        except json.JSONDecodeError as json_error:
+            _LOGGER.error("Failed to decode learning data JSON: %s", json_error)
         except Exception as exc:  # pylint: disable=broad-except
             _LOGGER.error("Failed to load learning data: %s", exc)
 
@@ -371,7 +386,11 @@ class DehumidifierLearningModule:
         self._analyze_energy_efficiency()
         
         # Save updated model to store
-        await self.save_learning_data()
+        try:
+            await self.save_learning_data()
+            _LOGGER.debug("Learning data saved after analysis")
+        except Exception as exc:  # pylint: disable=broad-except
+            _LOGGER.error("Failed to save learning data after analysis: %s", exc)
 
     def _analyze_humidity_reduction(self):
         """Analyze how fast humidity decreases when dehumidifier is on."""
