@@ -197,15 +197,22 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
         humid_state = self.hass.states.get(self.humidity_sensor)
         current_humidity = float(humid_state.state) if humid_state else 0.0
         target_humidity = self.max_humidity - 5
-        temperature = float(
-            self.hass.states.get(self.humidity_sensor)
-                .attributes.get("temperature", "nan")
-        )
-        weather = (
-            self.hass.states.get(self.weather_entity).state
-            if self.weather_entity
-            else None
-        )
+        
+        # Safely get temperature
+        temperature = None
+        humidity_state = self.hass.states.get(self.humidity_sensor)
+        if humidity_state and humidity_state.attributes.get("temperature") is not None:
+            try:
+                temperature = float(humidity_state.attributes.get("temperature"))
+            except (ValueError, TypeError):
+                pass
+                
+        # Safely get weather
+        weather = None
+        if self.weather_entity:
+            weather_state = self.hass.states.get(self.weather_entity)
+            if weather_state and weather_state.state not in ("unknown", "unavailable"):
+                weather = weather_state.state
         hours_needed = self.learning_module.predict_hours_needed(
             current_humidity=current_humidity,
             target_humidity=target_humidity,

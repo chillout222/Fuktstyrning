@@ -90,13 +90,10 @@ class DehumidifierLearningModule:
             # Load previous data if exists
             self.hass.async_add_executor_job(self._load_humidity_data)
             
-            # Schedule the async analysis in the event loop
-            import asyncio
-            try:
-                asyncio.run_coroutine_threadsafe(self._perform_analysis(), self.hass.loop)
-                _LOGGER.debug("Initial learning analysis scheduled")
-            except RuntimeError as e:
-                _LOGGER.error("Failed to schedule analysis: %s", e)
+            # Instead of trying to schedule directly, add a job to the HA executor
+            # that will run once the event loop is available
+            self.hass.async_create_task(self._perform_analysis())
+            _LOGGER.debug("Initial learning analysis scheduled via create_task")
                 
         except Exception as exc:  # pylint: disable=broad-except
             _LOGGER.error("Initial analysis scheduling failed: %s", exc)
