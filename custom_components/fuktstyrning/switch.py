@@ -55,6 +55,12 @@ class DehumidifierControlSwitch(SwitchEntity):
             ATTR_OVERRIDE_ACTIVE: False,
         }
 
+    async def async_added_to_hass(self) -> None:
+        """Set controller's smart_switch_entity_id when added to HA."""
+        await super().async_added_to_hass()
+        # Record this entity id for service resolution
+        self.controller.smart_switch_entity_id = self.entity_id
+
     @property
     def is_on(self) -> bool:
         """Return true if the smart control is enabled."""

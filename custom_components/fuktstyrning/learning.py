@@ -72,10 +72,12 @@ class DehumidifierLearningModule:
     def _initial_analysis(self):
         """Heavy first‑run analysis executed in executor thread."""
         try:
-            self._perform_full_analysis()
-            _LOGGER.debug("Initial learning analysis complete")
+            # Schedule the async analysis in the event loop
+            import asyncio
+            asyncio.run_coroutine_threadsafe(self._perform_analysis(), self.hass.loop)
+            _LOGGER.debug("Initial learning analysis scheduled")
         except Exception as exc:  # pylint: disable=broad-except
-            _LOGGER.error("Initial analysis failed: %s", exc)
+            _LOGGER.error("Initial analysis scheduling failed: %s", exc)
 
     async def shutdown(self):
         """Shut down the learning module."""

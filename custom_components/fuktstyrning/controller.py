@@ -69,6 +69,8 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
         self.schedule_created_date: Optional[datetime] = None
         self.override_active: bool = False
         self.cost_savings: float = 0.0
+        # Entity ID for the smart control switch
+        self.smart_switch_entity_id: Optional[str] = None
 
         # simple defaults for learning
         self.dehumidifier_data: Dict[str, Any] = {
