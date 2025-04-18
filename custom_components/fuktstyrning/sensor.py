@@ -16,7 +16,7 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfEnergy, UnitOfTime
+from homeassistant.const import UnitOfEnergy, UnitOfTime, CONF_HUMIDITY_SENSOR, CONF_POWER_SENSOR, CONF_ENERGY_SENSOR
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -270,8 +270,10 @@ class DewPointSensor(SensorEntity):
         self.entry = entry
         self.controller = controller
         
-        self._humidity_entity = "sensor.aqara_t1_innerst_luftfuktighet"
-        self._temperature_entity = "sensor.aqara_t1_innerst_temperatur"
+        # Använd primära fukt- och temperatursensorn från konfigurationen
+        # Temperatursensorn är ofta samma som fuktsensorn (Aqara T1 rapporterar båda)
+        self._humidity_entity = entry.data.get(CONF_HUMIDITY_SENSOR, "sensor.aqara_t1_innerst_luftfuktighet")
+        self._temperature_entity = entry.data.get(CONF_HUMIDITY_SENSOR, "sensor.aqara_t1_innerst_temperatur")
         
         self._attr_unique_id = f"{entry.entry_id}_{SENSOR_DEW_POINT_UNIQUE_ID}"
         self._attr_name = SENSOR_DEW_POINT_NAME
@@ -330,7 +332,10 @@ class PowerSensor(SensorEntity):
         self.entry = entry
         self.controller = controller
         
-        self._power_entity = "sensor.lumi_lumi_plug_maeu01_active_power"
+        # Använd effektsensorn från konfigurationen
+        self._power_entity = entry.data.get(CONF_POWER_SENSOR, "sensor.lumi_lumi_plug_maeu01_active_power")
+        # Energisensor för effektivitetsberäkningar
+        self._energy_sensor = entry.data.get(CONF_ENERGY_SENSOR, None)
         
         self._attr_unique_id = f"{entry.entry_id}_{SENSOR_POWER_UNIQUE_ID}"
         self._attr_name = SENSOR_POWER_NAME
@@ -343,20 +348,29 @@ class PowerSensor(SensorEntity):
         """Update the power usage."""
         try:
             # Get current power
-            power_state = self.hass.states.get(self._power_entity)
-            if not power_state or power_state.state in ("unknown", "unavailable"):
-                return
-                
-            try:
-                power = float(power_state.state)
-                self._attr_native_value = power
-            except ValueError:
-                return
+            if self._power_entity:
+                power_state = self.hass.states.get(self._power_entity)
+                if power_state and power_state.state not in ("unknown", "unavailable"):
+                    try:
+                        power = float(power_state.state)
+                        self._attr_native_value = power
+                    except ValueError:
+                        pass
                 
             # Add efficiency data if available
             model = self.controller.learning_module.get_current_model()
             if "energy_efficiency" in model:
                 self._attr_extra_state_attributes[ATTR_ENERGY_EFFICIENCY] = model["energy_efficiency"]
+                
+            # Add energy data if available
+            if self._energy_sensor:
+                energy_state = self.hass.states.get(self._energy_sensor)
+                if energy_state and energy_state.state not in ("unknown", "unavailable"):
+                    try:
+                        energy = float(energy_state.state)
+                        self._attr_extra_state_attributes[ATTR_ENERGY_USED] = energy
+                    except ValueError:
+                        pass
                 
         except Exception as exc:  # pylint: disable=broad-except
             _LOGGER.error("PowerSensor update error: %s", exc)
