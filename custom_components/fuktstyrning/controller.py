@@ -74,7 +74,8 @@ class FuktstyrningController:
 
         # ── Runtime state ──────────────────────────────────────────────
         self._unsub_interval: Optional[Any] = None
-        self.schedule: List[Dict[str, Any]] = []
+        self.schedule: Dict[int, bool] = {}
+        self.schedule_created_date: Optional[datetime] = None
         self.override_active: bool = False
         self.cost_savings: float = 0.0  # <‑‑ used by CostSavingsSensor
 
@@ -197,13 +198,31 @@ class FuktstyrningController:
     # Schedule creation & execution
     # ------------------------------------------------------------------
 
-    async def _create_daily_schedule(self) -> None:
+        async def _create_daily_schedule(self) -> None:
         """Generate a new 24‑hour schedule at 13:00."""
         _LOGGER.debug("Creating daily schedule …")
         humid_state = self.hass.states.get(self.humidity_sensor)
         if not humid_state or humid_state.state in ("unknown", "unavailable"):
             _LOGGER.error("Humidity sensor %s unavailable", self.humidity_sensor)
             return
+        current_humidity = float(humid_state.state)
+        price_forecast = self._get_price_forecast()
+        if not price_forecast:
+            _LOGGER.error("No price forecast – skipping schedule")
+            return
+        rain_hours = await self._get_rain_forecast()
+        outdoor = None
+        if self.outdoor_humidity_sensor and self.outdoor_temp_sensor:
+            oh = self.hass.states.get(self.outdoor_humidity_sensor)
+            ot = self.hass.states.get(self.outdoor_temp_sensor)
+            try:
+                outdoor = {"humidity": float(oh.state), "temperature": float(ot.state)}
+            except Exception:  # pylint: disable=broad-except
+                _LOGGER.debug("Could not parse outdoor sensors")
+        self.schedule = self._optimize_schedule(price_forecast, current_humidity, rain_hours, outdoor)
+        self.schedule_created_date = dt_util.now()   # <-- store timestamp
+        _LOGGER.info("New schedule created: %s", self.schedule)
+        return
         current_humidity = float(humid_state.state)
         price_forecast = self._get_price_forecast()
         if not price_forecast:
