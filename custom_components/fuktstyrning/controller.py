@@ -164,15 +164,22 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
         # ---  Hitta hur många timmar som faktiskt BEHÖVS ---------------
         humid_state = self.hass.states.get(self.humidity_sensor)
         current_humidity = float(humid_state.state) if humid_state else 0.0
-        diff = current_humidity - (self.max_humidity - 5)
-        if diff <= 0:
-            hours_needed = 0
-        else:
-            # Ex: 68 → 60  =>  8 %  /  1.2 %/h  ≈ 7 h
-            avg_rate = self.learning_module.predict_reduction_rate(current_humidity)
-            hours_needed = math.ceil(diff / avg_rate)
-
-        hours_needed = max(2, min(hours_needed, 8))  # bound 2–8 h
+        target_humidity = self.max_humidity - 5
+        temperature = float(
+            self.hass.states.get(self.humidity_sensor)
+                .attributes.get("temperature", "nan")
+        )
+        weather = (
+            self.hass.states.get(self.weather_entity).state
+            if self.weather_entity
+            else None
+        )
+        hours_needed = self.learning_module.predict_hours_needed(
+            current_humidity=current_humidity,
+            target_humidity=target_humidity,
+            temperature=temperature,
+            weather=weather,
+        )
 
         sorted_hours = sorted(range(24), key=lambda h: price_forecast[h])
         self.schedule = {h: False for h in range(24)}

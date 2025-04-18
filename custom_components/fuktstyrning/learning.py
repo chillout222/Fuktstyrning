@@ -203,6 +203,21 @@ class DehumidifierLearningModule:
                     break
         return rate
 
+    def predict_hours_needed(
+        self,
+        current_humidity: float,
+        target_humidity: float,
+        temperature: float = None,
+        weather: str = None,
+    ) -> int:
+        """Returnera antal timmar avfuktaren behöver vara på för att nå target_humidity."""
+        diff = current_humidity - target_humidity
+        if diff <= 0:
+            return 0
+        rate = self.predict_reduction_rate(current_humidity, temperature, weather)
+        hours = math.ceil(diff / rate) if rate > 0 else 0
+        return max(2, min(hours, 24))
+
     def _calculate_absolute_humidity(self, relative_humidity, temperature):
         """Calculate absolute humidity in g/m3 from relative humidity and temperature."""
         if relative_humidity is None or temperature is None:
