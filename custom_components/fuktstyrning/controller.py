@@ -12,6 +12,7 @@ Drop‑in‑ersättning för `custom_components/fuktstyrning/controller.py`.
 from __future__ import annotations
 
 import logging
+import math
 from datetime import datetime, time
 from typing import Any, Dict, List, Optional
 
@@ -120,6 +121,22 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
         except ValueError:
             return
 
+        # --- record humidity data after reading current_humidity ---
+        weather = self.hass.states.get(self.weather_entity).state if self.weather_entity else None
+        out_rh = self.hass.states.get(self.outdoor_humidity_sensor)
+        out_t = self.hass.states.get(self.outdoor_temp_sensor)
+
+        self.learning_module.record_humidity_data(
+            humidity=current_humidity,
+            dehumidifier_on=self.override_active or self.schedule.get(now.hour, False),
+            temperature=float(self.hass.states.get(self.humidity_sensor).attributes.get("temperature", "nan")),
+            weather=weather,
+            outdoor_humidity=float(out_rh.state) if out_rh else None,
+            outdoor_temp=float(out_t.state) if out_t else None,
+            power=float(self.hass.states.get(self.power_sensor).state) if self.power_sensor else None,
+            energy=float(self.hass.states.get(self.energy_sensor).state) if self.energy_sensor else None,
+        )
+
         if current_humidity >= self.max_humidity and not self.override_active:
             await self._turn_on_dehumidifier()
             self.override_active = True
@@ -144,10 +161,18 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
             _LOGGER.warning("No price forecast – skipping schedule")
             return
 
-        # simple runtime calc:  if current humidity < max‑5 → 2 h, else 4 h
+        # ---  Hitta hur många timmar som faktiskt BEHÖVS ---------------
         humid_state = self.hass.states.get(self.humidity_sensor)
         current_humidity = float(humid_state.state) if humid_state else 0.0
-        hours_needed = 4 if current_humidity > self.max_humidity - 5 else 2
+        diff = current_humidity - (self.max_humidity - 5)
+        if diff <= 0:
+            hours_needed = 0
+        else:
+            # Ex: 68 → 60  =>  8 %  /  1.2 %/h  ≈ 7 h
+            avg_rate = self.learning_module.predict_reduction_rate(current_humidity)
+            hours_needed = math.ceil(diff / avg_rate)
+
+        hours_needed = max(2, min(hours_needed, 8))  # bound 2–8 h
 
         sorted_hours = sorted(range(24), key=lambda h: price_forecast[h])
         self.schedule = {h: False for h in range(24)}

@@ -186,6 +186,23 @@ class DehumidifierLearningModule:
         if len(self.humidity_data) > 1000:
             self.humidity_data = self.humidity_data[-1000:]
 
+    # Helper to predict dehumidifier reduction rate including dynamic impacts
+    def predict_reduction_rate(self, start_humidity: float, temperature: float = None, weather: str = None) -> float:
+        """Return %‑enheter per timme som modellen tror avfuktaren klarar, med justering för väder och temperatur."""
+        key = f"{round(start_humidity)}_to_{round(start_humidity)-1}"
+        minutes = self.controller.dehumidifier_data["time_to_reduce"].get(key, 30)
+        rate = 60 / minutes
+        # Weather impact
+        if weather:
+            rate *= self.controller.dehumidifier_data.get("weather_impact", {}).get(weather, 1)
+        # Temperature impact
+        if temperature is not None:
+            for cat, (min_t, max_t) in self.temp_categories.items():
+                if min_t <= temperature < max_t:
+                    rate *= self.controller.dehumidifier_data.get("temp_impact", {}).get(cat, 1)
+                    break
+        return rate
+
     def _calculate_absolute_humidity(self, relative_humidity, temperature):
         """Calculate absolute humidity in g/m3 from relative humidity and temperature."""
         if relative_humidity is None or temperature is None:
@@ -687,8 +704,8 @@ class DehumidifierLearningModule:
                     temp = curr["temperature"]
                     temp_category = None
                     
-                    for cat, (min_temp, max_temp) in self.temp_categories.items():
-                        if min_temp <= temp < max_temp:
+                    for cat, (min_t, max_t) in self.temp_categories.items():
+                        if min_t <= temp < max_t:
                             temp_category = cat
                             break
                             
