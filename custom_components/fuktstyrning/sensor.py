@@ -7,7 +7,7 @@ This file replaces the original sensor.py and fixes:
 from __future__ import annotations
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, time
 from typing import Any, Dict, List, Optional
 
 from homeassistant.components.sensor import (
