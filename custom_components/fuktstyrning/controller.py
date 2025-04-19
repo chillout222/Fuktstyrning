@@ -21,6 +21,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.components.recorder import get_instance
 from homeassistant.helpers.storage import Store
+from homeassistant.helpers.event import async_track_state_change
 
 from .learning import DehumidifierLearningModule
 from .const import (
@@ -100,6 +101,13 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
         
         # First initialize learning module
         await self.learning_module.initialize()
+        # Register callback for price data readiness
+        if self.price_sensor:
+            self._price_unsub = async_track_state_change(
+                self.hass,
+                self.price_sensor,
+                self.async_handle_price_ready,
+            )
         
         # Then setup controller
         await self.setup()
@@ -110,6 +118,9 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
         _LOGGER.debug("Fuktstyrning controller initialized")
 
     async def shutdown(self) -> None:
+        # Unregister price-ready listener
+        if getattr(self, '_price_unsub', None):
+            self._price_unsub()
         # Save data
         await self._store.async_save({
             "dehumidifier_data": self.dehumidifier_data,
@@ -137,10 +148,6 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
     async def async_tick(self) -> None:
         """Main loop called by the integration's time pattern trigger."""
         now = dt_util.now()
-        # regenerate schedule daily at 13:00
-        if now.hour == 13 and now.minute == 0:
-            await self._create_daily_schedule()
-
         # override if humidity > threshold
         humidity_state = self.hass.states.get(self.humidity_sensor)
         if not humidity_state or humidity_state.state in ("unknown", "unavailable"):
@@ -291,3 +298,10 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
             return 0
         fc = st.attributes.get("forecast", [])
         return sum(1 for item in fc[:24] if item.get("precipitation", 0) > 0)
+
+    async def async_handle_price_ready(
+        self, entity_id, old_state, new_state
+    ) -> None:
+        """Handle price data readiness and trigger daily schedule."""
+        if new_state and new_state.attributes.get("tomorrow_valid"):
+            await self._create_daily_schedule()
