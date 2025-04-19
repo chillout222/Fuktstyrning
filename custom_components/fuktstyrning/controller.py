@@ -35,6 +35,8 @@ from .const import (
     CONF_VOLTAGE_SENSOR,
     CONF_MAX_HUMIDITY,
     DEFAULT_MAX_HUMIDITY,
+    CONTROLLER_STORAGE_KEY,
+    LEARNING_STORAGE_KEY,
 )
 
 _LOGGER = logging.getLogger(__name__)
