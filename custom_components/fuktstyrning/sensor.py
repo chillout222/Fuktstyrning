@@ -7,6 +7,7 @@ This file replaces the original sensor.py and fixes:
 from __future__ import annotations
 
 import logging
+import math
 from datetime import datetime, timedelta, time
 from typing import Any, Dict, List, Optional
 
