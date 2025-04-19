@@ -16,7 +16,8 @@ from homeassistant.components.sensor import (
     SensorStateClass,
 )
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import UnitOfEnergy, UnitOfTime, CONF_HUMIDITY_SENSOR, CONF_POWER_SENSOR, CONF_ENERGY_SENSOR
+from homeassistant.const import UnitOfEnergy, UnitOfTime
+from .const import CONF_HUMIDITY_SENSOR, CONF_POWER_SENSOR, CONF_ENERGY_SENSOR
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity import EntityCategory
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
