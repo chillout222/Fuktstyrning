@@ -19,7 +19,9 @@ CONF_OUTDOOR_HUMIDITY_SENSOR = "outdoor_humidity_sensor"
 CONF_OUTDOOR_TEMP_SENSOR = "outdoor_temp_sensor"
 CONF_POWER_SENSOR = "power_sensor"
 CONF_ENERGY_SENSOR = "energy_sensor"
+CONF_VOLTAGE_SENSOR = "voltage_sensor"
 CONF_PRICE_SENSOR = "price_sensor"
+CONF_MAX_HUMIDITY = "max_humidity"
 
 # Defaults
 DEFAULT_MAX_HUMIDITY = 70.0
