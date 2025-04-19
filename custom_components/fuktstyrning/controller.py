@@ -22,6 +22,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.components.recorder import get_instance
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.event import async_track_state_change
+from homeassistant.exceptions import UpdateFailed
 
 from .learning import DehumidifierLearningModule
 from .const import (
@@ -84,6 +85,14 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
         # Learning module gets reference to controller so it can read data
         self.learning_module = DehumidifierLearningModule(hass, self)
 
+    @property
+    def smart_enabled(self) -> bool:
+        """Return True if smart-control switch is enabled."""
+        if not self.smart_switch_entity_id:
+            return True
+        state = self.hass.states.get(self.smart_switch_entity_id)
+        return bool(state and state.state == "on")
+
     # ------------------------------------------------------------------
     # Lifecycle helpers
     # ------------------------------------------------------------------
@@ -117,6 +126,7 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
         _LOGGER.debug("Fuktstyrning controller initialized")
 
     async def shutdown(self) -> None:
+        self.scheduler.stop()
         # Unregister price-ready listener
         if getattr(self, '_price_unsub', None):
             self._price_unsub()
@@ -145,6 +155,9 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
     # ------------------------------------------------------------------
 
     async def async_tick(self) -> None:
+        # Respect smart-control switch
+        if not self.smart_enabled:
+            return
         """Main loop called by the integration's time pattern trigger."""
         now = dt_util.now()
         # override if humidity > threshold
@@ -240,6 +253,9 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
         _LOGGER.info("Generated schedule %s (created %s)", self.schedule, self.schedule_created_date)
 
     async def _follow_schedule(self) -> None:
+        # Respect smart-control switch
+        if not self.smart_enabled:
+            return
         now_hour = dt_util.now().hour
         should_run = self.schedule.get(now_hour, False)
         if should_run:
@@ -275,19 +291,50 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
     # Forecast helpers (very lightweight)
     # ------------------------------------------------------------------
 
-    def _get_price_forecast(self) -> List[float] | None:
+    def _get_price_forecast(self) -> list[float] | None:
         st = self.hass.states.get(self.price_sensor)
         if not st:
-            return None
-        forecast = st.attributes.get("forecast")
-        if isinstance(forecast, list) and all(isinstance(e, dict) and "price" in e for e in forecast):
-            return [float(e["price"]) for e in forecast][:24]
-        # Fallback: if state itself is number replicate 24 ggr
+            _LOGGER.warning("Price sensor %s not found", self.price_sensor)
+            raise UpdateFailed("Missing price forecast")
         try:
-            price_now = float(st.state)
-            return [price_now] * 24
-        except ValueError:
-            return None
+            raw = st.attributes["forecast"]
+        except KeyError:
+            _LOGGER.warning("Missing 'forecast' attribute in price sensor %s", self.price_sensor)
+            raise UpdateFailed("Missing price forecast")
+        except TypeError:
+            _LOGGER.warning("Invalid attributes for price sensor %s", self.price_sensor)
+            raise UpdateFailed("Missing price forecast")
+
+        if not isinstance(raw, list):
+            _LOGGER.warning(
+                "Expected 'forecast' to be list on sensor %s, got %s",
+                self.price_sensor,
+                type(raw).__name__,
+            )
+            raise UpdateFailed("Missing price forecast")
+
+        prices: list[float] = []
+        for idx, item in enumerate(raw[:24]):
+            if not isinstance(item, dict) or "price" not in item:
+                _LOGGER.warning(
+                    "Invalid forecast item at index %d on sensor %s: %s",
+                    idx,
+                    self.price_sensor,
+                    item,
+                )
+                raise UpdateFailed("Missing price forecast")
+            try:
+                prices.append(float(item["price"]))
+            except (TypeError, ValueError):
+                _LOGGER.warning(
+                    "Invalid price value at forecast[%d] on sensor %s: %s",
+                    idx,
+                    self.price_sensor,
+                    item.get("price"),
+                )
+                raise UpdateFailed("Missing price forecast")
+
+        return prices
 
     async def _get_rain_forecast(self) -> int:
         if not self.weather_entity:

@@ -109,8 +109,13 @@ class DehumidifierLearningModule:
                 self._analysis_scheduled = True
                 await self._perform_analysis()
                 _LOGGER.debug("Initial learning analysis complete")
+        except json.JSONDecodeError as exc:
+            _LOGGER.error("Failed to decode stored learning JSON: %s", exc)
+        except FileNotFoundError:
+            _LOGGER.info("No stored learning data file found, starting fresh.")
         except Exception as exc:  # pylint: disable=broad-except
-            _LOGGER.error("Learning module initialization failed: %s", exc)
+            _LOGGER.exception("Unexpected error initializing learning module")
+            raise
 
     async def shutdown(self):
         """Shut down the learning module."""
@@ -136,10 +141,13 @@ class DehumidifierLearningModule:
                             if "timestamp" in point and point["timestamp"] > cutoff
                         ]
                         _LOGGER.info("Loaded %d humidity data points (60 day history)", len(self.humidity_data))
-        except json.JSONDecodeError as json_error:
-            _LOGGER.error("Failed to decode humidity data JSON: %s", json_error)
+        except json.JSONDecodeError as exc:
+            _LOGGER.error("Failed to decode humidity data JSON: %s", exc)
+        except FileNotFoundError:
+            _LOGGER.info("Humidity data file not found, skipping.")
         except Exception as exc:  # pylint: disable=broad-except
-            _LOGGER.error("Failed to load humidity data: %s", exc)
+            _LOGGER.exception("Unexpected error loading humidity data")
+            raise
 
     async def _save_humidity_data(self):
         """Save humidity data to file."""
@@ -169,8 +177,11 @@ class DehumidifierLearningModule:
                 
             self.last_save_time = now
             _LOGGER.debug("Saved %d humidity data points", len(self.humidity_data))
-        except Exception as exc:  # pylint: disable=broad-except
+        except (OSError, IOError) as exc:  # pylint: disable=broad-except
             _LOGGER.error("Failed to save humidity data: %s", exc)
+        except Exception as exc:  # pylint: disable=broad-except
+            _LOGGER.exception("Unexpected error saving humidity data")
+            raise
 
     async def load_learning_data(self):
         """Load learning data from store."""
@@ -196,10 +207,13 @@ class DehumidifierLearningModule:
                 except (ValueError, KeyError, TypeError) as schema_error:
                     # Handle future schema migration errors
                     _LOGGER.warning("Schema error in stored data: %s", schema_error)
-        except json.JSONDecodeError as json_error:
-            _LOGGER.error("Failed to decode learning data JSON: %s", json_error)
+        except json.JSONDecodeError as exc:
+            _LOGGER.error("Failed to decode learning data JSON: %s", exc)
+        except FileNotFoundError:
+            _LOGGER.info("Learning data not found in store, starting fresh.")
         except Exception as exc:  # pylint: disable=broad-except
-            _LOGGER.error("Failed to load learning data: %s", exc)
+            _LOGGER.exception("Unexpected error loading learning data")
+            raise
 
     async def save_learning_data(self):
         """Save learning data to store."""
@@ -217,8 +231,11 @@ class DehumidifierLearningModule:
             # Save using storage helper
             await self._store.async_save(data)
             _LOGGER.debug("Saved learning data to store")
+        except (TypeError, ValueError) as exc:
+            _LOGGER.error("Failed to serialize learning data: %s", exc)
         except Exception as exc:  # pylint: disable=broad-except
-            _LOGGER.error("Failed to save learning data: %s", exc)
+            _LOGGER.exception("Unexpected error saving learning data")
+            raise
 
     def record_humidity_data(self, humidity, dehumidifier_on, temperature=None, weather=None, 
                            outdoor_humidity=None, outdoor_temp=None, power=None, energy=None):
@@ -429,7 +446,8 @@ class DehumidifierLearningModule:
             await self.save_learning_data()
             _LOGGER.debug("Learning data saved after analysis")
         except Exception as exc:  # pylint: disable=broad-except
-            _LOGGER.error("Failed to save learning data after analysis: %s", exc)
+            _LOGGER.exception("Unexpected error saving learning data after analysis")
+            raise
 
     def _analyze_humidity_reduction(self):
         """Analyze how fast humidity decreases when dehumidifier is on."""
