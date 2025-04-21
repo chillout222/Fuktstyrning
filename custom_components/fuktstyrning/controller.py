@@ -401,15 +401,19 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
         fc = st.attributes.get("forecast", [])
         return sum(1 for item in fc[:24] if item.get("precipitation", 0) > 0)
 
-    async def async_handle_price_ready(
-        self, entity_id, old_state, new_state
-    ) -> None:
+    async def async_handle_price_ready(self, event) -> None:
         """Handle price data readiness and trigger daily schedule."""
+        entity_id = event.data.get("entity_id")
+        old_state = event.data.get("old_state")
+        new_state = event.data.get("new_state")
         if new_state and new_state.attributes.get("tomorrow_valid"):
             await self._create_daily_schedule()
 
-    async def async_handle_humidity_change(self, entity_id, old_state, new_state) -> None:
+    async def async_handle_humidity_change(self, event) -> None:
         """Handle humidity sensor changes for immediate on/off."""
+        entity_id = event.data.get("entity_id")
+        old_state = event.data.get("old_state")
+        new_state = event.data.get("new_state")
         # Validate new state
         if not new_state:
             _LOGGER.debug("async_handle_humidity_change: new_state is None for %s, ignoring", entity_id)
