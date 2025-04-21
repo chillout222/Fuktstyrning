@@ -238,72 +238,29 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
         except UpdateFailed as e:
             _LOGGER.warning("Price forecast unavailable (%s), skipping schedule", e)
             return
-        if not price_forecast:
-            _LOGGER.warning("No price forecast – skipping schedule")
-            return
+        now_h = dt_util.now().hour
+        from .scheduler import build_optimized_schedule
 
-        # Determine hours to consider: full day if tomorrow prices available, else remaining hours today
-        st = self.hass.states.get(self.price_sensor)
-        tomorrow_valid = bool(st and st.attributes.get("tomorrow_valid", False))
-        current_hour = dt_util.now().hour
-        if tomorrow_valid:
-            hours = list(range(24))
-        else:
-            hours = list(range(current_hour, 24))
-            _LOGGER.debug("Partial schedule for hours %d-23 as tomorrow prices not yet available", current_hour)
-
-        # ---  Hitta hur många timmar som faktiskt BEHÖVS ---------------
-        humid_state = self.hass.states.get(self.humidity_sensor)
-        # Validate humidity sensor availability
-        if humid_state is None:
-            _LOGGER.warning(
-                "Humidity sensor %s not found, skipping schedule",
-                self.humidity_sensor
-            )
-            return
-        if humid_state.state in ("unknown", "unavailable"):
-            _LOGGER.debug(
-                "Humidity sensor %s state '%s' invalid, skipping schedule",
-                self.humidity_sensor,
-                humid_state.state
-            )
-            return
-        target_humidity = self.max_humidity - 5
-        
-        # Safely get temperature
-        temperature = None
-        humidity_state = self.hass.states.get(self.humidity_sensor)
-        if humidity_state and humidity_state.attributes.get("temperature") is not None:
-            temp_attr = humidity_state.attributes.get("temperature")
-            try:
-                temperature = float(temp_attr)
-            except (ValueError, TypeError):
-                _LOGGER.warning(
-                    "Temperature attribute not numeric (%s), ignoring temperature",
-                    temp_attr
-                )
-                temperature = None
-                
-        # Safely get weather
-        weather = None
-        if self.weather_entity:
-            weather_state = self.hass.states.get(self.weather_entity)
-            if weather_state and weather_state.state not in ("unknown", "unavailable"):
-                weather = weather_state.state
-        hours_needed = self.learning_module.predict_hours_needed(
-            current_humidity=float(humid_state.state),
-            target_humidity=target_humidity,
-            temperature=temperature,
-            weather=weather,
+        schedule_list = build_optimized_schedule(
+            current_humidity=float(self.hass.states.get(self.humidity_sensor).state),
+            max_humidity=self.max_humidity,
+            price_forecast=price_forecast,
+            reduction_rate=self.dehumidifier_data.get("time_to_reduce", 1.5),
+            increase_rate=self.dehumidifier_data.get("time_to_increase", 0.4),
+            peak_hours=[17, 18, 19, 20, 21],
+            base_buffer=3.0,
+            alpha=0.8,
         )
-
-        sorted_hours = sorted(hours, key=lambda h: price_forecast[h])
-        self.schedule = {h: False for h in range(24)}
-        for h in sorted_hours[:hours_needed]:
-            self.schedule[h] = True
-
+        self.schedule = {
+            (now_h + i) % 24: run
+            for i, run in enumerate(schedule_list[:24])
+        }
         self.schedule_created_date = dt_util.now()
-        _LOGGER.info("Generated schedule %s (created %s)", self.schedule, self.schedule_created_date)
+        _LOGGER.info(
+            "Generated optimized schedule %s (created %s)",
+            self.schedule,
+            self.schedule_created_date,
+        )
 
     async def _follow_schedule(self) -> None:
         # Respect smart-control switch
