@@ -21,7 +21,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.components.recorder import get_instance
 from homeassistant.helpers.storage import Store
-from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.event import async_track_state_change_event, async_call_later
 from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from .learning import DehumidifierLearningModule
@@ -84,6 +84,11 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
         
         # Learning module gets reference to controller so it can read data
         self.learning_module = DehumidifierLearningModule(hass, self)
+
+        # Ground state monitoring
+        self.time_off: datetime | None = None
+        self.humidity_at_time_off: float | None = None
+        self.ground_state: str = "Neutral"
 
     @property
     def smart_enabled(self) -> bool:
@@ -251,6 +256,19 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
             base_buffer=3.0,
             alpha=0.8,
         )
+        # Adjust schedule based on ground_state
+        if self.ground_state == "Ej torr":
+            free = [(price_forecast[i], i) for i, run in enumerate(schedule_list) if not run]
+            if free:
+                _, idx = min(free)
+                schedule_list[idx] = True
+                _LOGGER.info("Added extra hour %d for ground_state 'Ej torr'", idx)
+        elif self.ground_state == "Torr":
+            scheduled = [(price_forecast[i], i) for i, run in enumerate(schedule_list) if run]
+            if scheduled:
+                _, idx = max(scheduled)
+                schedule_list[idx] = False
+                _LOGGER.info("Removed hour %d for ground_state 'Torr'", idx)
         self.schedule = {
             (now_h + i) % 24: run
             for i, run in enumerate(schedule_list[:24])
@@ -295,7 +313,19 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
         await self.hass.services.async_call("switch", "turn_on", {"entity_id": self.dehumidifier_switch}, blocking=True)
 
     async def _turn_off_dehumidifier(self) -> None:
-        await self.hass.services.async_call("switch", "turn_off", {"entity_id": self.dehumidifier_switch}, blocking=True)
+        # Record off time and humidity
+        state = self.hass.states.get(self.humidity_sensor)
+        if state and state.state not in ("unknown", "unavailable"):
+            try:
+                self.humidity_at_time_off = float(state.state)
+            except (ValueError, TypeError):
+                pass
+        self.time_off = dt_util.now()
+        async_call_later(self.hass, 90 * 60, self._monitor_rise)
+        # Turn off dehumidifier
+        await self.hass.services.async_call(
+            "switch", "turn_off", {"entity_id": self.dehumidifier_switch}, blocking=True
+        )
 
     # ------------------------------------------------------------------
     # Forecast helpers (very lightweight)
@@ -412,3 +442,25 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
             )
             await self._turn_off_dehumidifier()
             self.override_active = False
+
+    async def _monitor_rise(self, now) -> None:
+        """Monitor humidity rise after dehumidifier is turned off."""
+        if not self.time_off or self.humidity_at_time_off is None:
+            return
+        state = self.hass.states.get(self.humidity_sensor)
+        if not state or state.state in ("unknown", "unavailable"):
+            return
+        try:
+            humidity_now = float(state.state)
+        except (ValueError, TypeError):
+            return
+        delta_min = (now - self.time_off).total_seconds() / 60
+        rise_rate = (humidity_now - self.humidity_at_time_off) / delta_min
+        if rise_rate > 0.10:
+            gs = "Ej torr"
+        elif rise_rate < 0.03:
+            gs = "Torr"
+        else:
+            gs = "Neutral"
+        self.ground_state = gs
+        _LOGGER.info("Ground state %s (rise_rate=%.3f%%/min)", gs, rise_rate)

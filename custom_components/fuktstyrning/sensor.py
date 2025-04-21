@@ -35,6 +35,8 @@ from .const import (
     SENSOR_DEW_POINT_NAME,
     SENSOR_POWER_UNIQUE_ID,
     SENSOR_POWER_NAME,
+    SENSOR_GROUND_STATE_UNIQUE_ID,
+    SENSOR_GROUND_STATE_NAME,
     # Attribute keys
     ATTR_SCHEDULE,
     ATTR_OVERRIDE_ACTIVE,
@@ -66,6 +68,7 @@ async def async_setup_entry(
         LearningModelSensor(hass, entry, controller),
         DewPointSensor(hass, entry, controller),
         PowerSensor(hass, entry, controller),
+        GroundStateSensor(hass, entry, controller),
     ]
     async_add_entities(entities)
 
@@ -406,3 +409,34 @@ class PowerSensor(SensorEntity):
                 
         except Exception as exc:  # pylint: disable=broad-except
             _LOGGER.error("PowerSensor update error: %s", exc)
+
+
+# -----------------------------------------------------------------------------
+# Ground state sensor
+# -----------------------------------------------------------------------------
+
+
+class GroundStateSensor(SensorEntity):
+    """Sensor that indicates ground dryness state."""
+
+    _attr_has_entity_name = True
+    _attr_entity_category = EntityCategory.DIAGNOSTIC
+    _attr_icon = "mdi:water-percent"
+
+    def __init__(self, hass: HomeAssistant, entry: ConfigEntry, controller):
+        self.hass = hass
+        self.entry = entry
+        self.controller = controller
+        self._attr_unique_id = f"{entry.entry_id}_{SENSOR_GROUND_STATE_UNIQUE_ID}"
+        self._attr_name = SENSOR_GROUND_STATE_NAME
+        self._attr_native_value: str | None = None
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.entry_id)},
+            name="Fuktstyrning Dehumidifier Controller",
+            manufacturer="Fuktstyrning",
+            model="Smart Dehumidifier Control",
+        )
+
+    async def async_update(self) -> None:
+        """Update ground state based on controller classification."""
+        self._attr_native_value = self.controller.ground_state

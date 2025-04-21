@@ -48,6 +48,7 @@ SENSOR_HUMIDITY_PREDICTION_UNIQUE_ID = "humidity_prediction"
 BINARY_SENSOR_OPTIMAL_RUNNING_UNIQUE_ID = "optimal_running"
 SENSOR_DEW_POINT_UNIQUE_ID = "dew_point"
 SENSOR_POWER_UNIQUE_ID = "power"
+SENSOR_GROUND_STATE_UNIQUE_ID = "ground_state"
 
 # Display names
 CONTROLLER_NAME = "Dehumidifier Controller"
@@ -57,6 +58,7 @@ SENSOR_HUMIDITY_PREDICTION_NAME = "Predicted Humidity"
 BINARY_SENSOR_OPTIMAL_RUNNING_NAME = "Optimal Running Period"
 SENSOR_DEW_POINT_NAME = "Dew Point"
 SENSOR_POWER_NAME = "Power Usage"
+SENSOR_GROUND_STATE_NAME = "Ground State"
 
 # Storage
 CONTROLLER_STORAGE_KEY = "fuktstyrning_controller_data"
