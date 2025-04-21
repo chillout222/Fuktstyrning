@@ -21,8 +21,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.components.recorder import get_instance
 from homeassistant.helpers.storage import Store
-from homeassistant.helpers.event import async_track_state_change
-from homeassistant.exceptions import UpdateFailed
+from homeassistant.helpers.event import async_track_state_change_event
+from homeassistant.helpers.update_coordinator import UpdateFailed
 
 from .learning import DehumidifierLearningModule
 from .const import (
@@ -111,10 +111,17 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
         await self.learning_module.initialize()
         # Register callback for price data readiness
         if self.price_sensor:
-            self._price_unsub = async_track_state_change(
+            self._price_unsub = async_track_state_change_event(
                 self.hass,
                 self.price_sensor,
                 self.async_handle_price_ready,
+            )
+        # Register callback for humidity sensor changes (immediate response)
+        if self.humidity_sensor:
+            self._humidity_unsub = async_track_state_change_event(
+                self.hass,
+                self.humidity_sensor,
+                self.async_handle_humidity_change,
             )
         
         # Then setup controller
@@ -130,6 +137,9 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
         # Unregister price-ready listener
         if getattr(self, '_price_unsub', None):
             self._price_unsub()
+        # Unregister humidity listener
+        if getattr(self, '_humidity_unsub', None):
+            self._humidity_unsub()
         # Save data
         await self._store.async_save({
             "dehumidifier_data": self.dehumidifier_data,
@@ -176,14 +186,25 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
             weather = self.hass.states.get(self.weather_entity).state if self.weather_entity else None
             out_rh = self.hass.states.get(self.outdoor_humidity_sensor)
             out_t = self.hass.states.get(self.outdoor_temp_sensor)
-            temp = float(self.hass.states.get(self.humidity_sensor).attributes.get("temperature", "nan"))
+            temperature = None
+            humidity_state = self.hass.states.get(self.humidity_sensor)
+            if humidity_state and humidity_state.attributes.get("temperature") is not None:
+                temp_attr = humidity_state.attributes.get("temperature")
+                try:
+                    temperature = float(temp_attr)
+                except (ValueError, TypeError):
+                    _LOGGER.warning(
+                        "Temperature attribute not numeric (%s), ignoring temperature",
+                        temp_attr
+                    )
+                    temperature = None
             power = float(self.hass.states.get(self.power_sensor).state) if self.power_sensor else None
             energy = float(self.hass.states.get(self.energy_sensor).state) if self.energy_sensor else None
 
             self.learning_module.record_humidity_data(
                 humidity=current_humidity,
                 dehumidifier_on=self.override_active or self.schedule.get(now.hour, False),
-                temperature=temp,
+                temperature=temperature,
                 weather=weather,
                 outdoor_humidity=float(out_rh.state) if out_rh else None,
                 outdoor_temp=float(out_t.state) if out_t else None,
@@ -212,24 +233,58 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
 
     async def _create_daily_schedule(self) -> None:
         """Build a 24‑h schedule based on price forecast and humidity."""
-        price_forecast = self._get_price_forecast()
+        try:
+            price_forecast = self._get_price_forecast()
+        except UpdateFailed as e:
+            _LOGGER.warning("Price forecast unavailable (%s), skipping schedule", e)
+            return
         if not price_forecast:
             _LOGGER.warning("No price forecast – skipping schedule")
             return
 
+        # Determine hours to consider: full day if tomorrow prices available, else remaining hours today
+        st = self.hass.states.get(self.price_sensor)
+        tomorrow_valid = bool(st and st.attributes.get("tomorrow_valid", False))
+        current_hour = dt_util.now().hour
+        if tomorrow_valid:
+            hours = list(range(24))
+        else:
+            hours = list(range(current_hour, 24))
+            _LOGGER.debug("Partial schedule for hours %d-23 as tomorrow prices not yet available", current_hour)
+
         # ---  Hitta hur många timmar som faktiskt BEHÖVS ---------------
         humid_state = self.hass.states.get(self.humidity_sensor)
-        current_humidity = float(humid_state.state) if humid_state else 0.0
+        # Validate numeric humidity state
+        if not humid_state or humid_state.state in ("unknown", "unavailable"):
+            _LOGGER.warning(
+                "Humidity sensor %s not available (%s), skipping schedule",
+                self.humidity_sensor,
+                humid_state.state if humid_state else None
+            )
+            return
+        try:
+            current_humidity = float(humid_state.state)
+        except (TypeError, ValueError):
+            _LOGGER.warning(
+                "Humidity sensor state not numeric (%s), skipping schedule update",
+                humid_state.state
+            )
+            return
         target_humidity = self.max_humidity - 5
         
         # Safely get temperature
         temperature = None
         humidity_state = self.hass.states.get(self.humidity_sensor)
         if humidity_state and humidity_state.attributes.get("temperature") is not None:
+            temp_attr = humidity_state.attributes.get("temperature")
             try:
-                temperature = float(humidity_state.attributes.get("temperature"))
+                temperature = float(temp_attr)
             except (ValueError, TypeError):
-                pass
+                _LOGGER.warning(
+                    "Temperature attribute not numeric (%s), ignoring temperature",
+                    temp_attr
+                )
+                temperature = None
                 
         # Safely get weather
         weather = None
@@ -244,7 +299,7 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
             weather=weather,
         )
 
-        sorted_hours = sorted(range(24), key=lambda h: price_forecast[h])
+        sorted_hours = sorted(hours, key=lambda h: price_forecast[h])
         self.schedule = {h: False for h in range(24)}
         for h in sorted_hours[:hours_needed]:
             self.schedule[h] = True
@@ -296,45 +351,46 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
         if not st:
             _LOGGER.warning("Price sensor %s not found", self.price_sensor)
             raise UpdateFailed("Missing price forecast")
-        try:
-            raw = st.attributes["forecast"]
-        except KeyError:
-            _LOGGER.warning("Missing 'forecast' attribute in price sensor %s", self.price_sensor)
+        # Try raw_today/raw_tomorrow first
+        raw_today = st.attributes.get("raw_today", [])
+        raw_tomorrow = st.attributes.get("raw_tomorrow", []) if st.attributes.get("tomorrow_valid", False) else []
+        combined = raw_today + raw_tomorrow
+        forecast: list[float] = []
+        for item in combined[:24]:
+            if isinstance(item, dict) and "value" in item:
+                try:
+                    forecast.append(float(item["value"]))
+                except (TypeError, ValueError):
+                    _LOGGER.warning("Invalid raw value for sensor %s: %s", self.price_sensor, item)
+            else:
+                try:
+                    val = str(item).replace(",", ".")
+                    forecast.append(float(val))
+                except (TypeError, ValueError):
+                    _LOGGER.warning("Invalid forecast item for sensor %s: %s", self.price_sensor, item)
+        if not forecast:
+            # Fallback to 'today'/'tomorrow' attributes
+            prices_today = st.attributes.get("today", [])
+            prices_tomorrow = st.attributes.get("tomorrow", []) if st.attributes.get("tomorrow_valid", False) else []
+            items = []
+            if isinstance(prices_today, str):
+                items += [p.strip() for p in prices_today.split(",")]
+            elif isinstance(prices_today, list):
+                items += prices_today
+            if isinstance(prices_tomorrow, str):
+                items += [p.strip() for p in prices_tomorrow.split(",")]
+            elif isinstance(prices_tomorrow, list):
+                items += prices_tomorrow
+            for entry in items[:24]:
+                try:
+                    val = str(entry).replace(",", ".")
+                    forecast.append(float(val))
+                except (TypeError, ValueError):
+                    _LOGGER.warning("Invalid fallback item for sensor %s: %s", self.price_sensor, entry)
+        if not forecast:
+            _LOGGER.warning("No valid price forecast for sensor %s", self.price_sensor)
             raise UpdateFailed("Missing price forecast")
-        except TypeError:
-            _LOGGER.warning("Invalid attributes for price sensor %s", self.price_sensor)
-            raise UpdateFailed("Missing price forecast")
-
-        if not isinstance(raw, list):
-            _LOGGER.warning(
-                "Expected 'forecast' to be list on sensor %s, got %s",
-                self.price_sensor,
-                type(raw).__name__,
-            )
-            raise UpdateFailed("Missing price forecast")
-
-        prices: list[float] = []
-        for idx, item in enumerate(raw[:24]):
-            if not isinstance(item, dict) or "price" not in item:
-                _LOGGER.warning(
-                    "Invalid forecast item at index %d on sensor %s: %s",
-                    idx,
-                    self.price_sensor,
-                    item,
-                )
-                raise UpdateFailed("Missing price forecast")
-            try:
-                prices.append(float(item["price"]))
-            except (TypeError, ValueError):
-                _LOGGER.warning(
-                    "Invalid price value at forecast[%d] on sensor %s: %s",
-                    idx,
-                    self.price_sensor,
-                    item.get("price"),
-                )
-                raise UpdateFailed("Missing price forecast")
-
-        return prices
+        return forecast
 
     async def _get_rain_forecast(self) -> int:
         if not self.weather_entity:
@@ -351,3 +407,49 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
         """Handle price data readiness and trigger daily schedule."""
         if new_state and new_state.attributes.get("tomorrow_valid"):
             await self._create_daily_schedule()
+
+    async def async_handle_humidity_change(self, entity_id, old_state, new_state) -> None:
+        """Handle humidity sensor changes for immediate on/off."""
+        # Validate new state
+        if not new_state:
+            _LOGGER.debug("async_handle_humidity_change: new_state is None for %s, ignoring", entity_id)
+            return
+        if new_state.state in ("unknown", "unavailable"):
+            _LOGGER.warning(
+                "async_handle_humidity_change: Sensor %s state '%s' not available, skipping",
+                entity_id,
+                new_state.state
+            )
+            return
+        # Parse humidity value
+        try:
+            new_humidity = float(new_state.state)
+        except (ValueError, TypeError):
+            _LOGGER.error(
+                "async_handle_humidity_change: Invalid humidity value '%s' for %s, ignoring",
+                new_state.state,
+                entity_id
+            )
+            return
+        _LOGGER.debug(
+            "async_handle_humidity_change: New humidity for %s is %.2f%%",
+            entity_id,
+            new_humidity
+        )
+        # Immediate override logic
+        if new_humidity >= self.max_humidity and not self.override_active:
+            _LOGGER.info(
+                "async_handle_humidity_change: Humidity %.2f%% >= max %.2f%%, activating override",
+                new_humidity,
+                self.max_humidity
+            )
+            await self._turn_on_dehumidifier()
+            self.override_active = True
+        elif self.override_active and new_humidity < self.max_humidity - 5:
+            _LOGGER.info(
+                "async_handle_humidity_change: Humidity %.2f%% < hysteresis threshold %.2f%%, deactivating override",
+                new_humidity,
+                self.max_humidity - 5
+            )
+            await self._turn_off_dehumidifier()
+            self.override_active = False

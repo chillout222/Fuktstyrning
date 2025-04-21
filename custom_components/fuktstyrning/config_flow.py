@@ -43,55 +43,65 @@ class FuktstyrningConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                 if humidity_sensor:
                     humidity_sensor = humidity_sensor.strip()
                     _LOGGER.debug("Selected humidity sensor: %s", humidity_sensor)
-                    # Validering inaktiverad för att tillåta setup
+                    # Validate sensor exists
+                    if not hass.states.get(humidity_sensor):
+                        errors[CONF_HUMIDITY_SENSOR] = "entity_not_found"
                     
                 price_sensor = user_input.get(CONF_PRICE_SENSOR)
                 if price_sensor:
                     price_sensor = price_sensor.strip()
                     _LOGGER.debug("Selected price sensor: %s", price_sensor)
-                    # Validering inaktiverad för att tillåta setup
+                    if not hass.states.get(price_sensor):
+                        errors[CONF_PRICE_SENSOR] = "entity_not_found"
                     
                 dehumidifier_switch = user_input.get(CONF_DEHUMIDIFIER_SWITCH)
                 if dehumidifier_switch:
                     dehumidifier_switch = dehumidifier_switch.strip()
                     _LOGGER.debug("Selected dehumidifier switch: %s", dehumidifier_switch)
-                    # Validering inaktiverad för att tillåta setup
+                    if not hass.states.get(dehumidifier_switch):
+                        errors[CONF_DEHUMIDIFIER_SWITCH] = "entity_not_found"
                     
                 weather_entity = user_input.get(CONF_WEATHER_ENTITY)
                 if weather_entity:
                     weather_entity = weather_entity.strip()
                     _LOGGER.debug("Selected weather entity: %s", weather_entity)
-                    # Validering inaktiverad för att tillåta setup
+                    if not hass.states.get(weather_entity):
+                        errors[CONF_WEATHER_ENTITY] = "entity_not_found"
                 
                 outdoor_humidity_sensor = user_input.get(CONF_OUTDOOR_HUMIDITY_SENSOR)
                 if outdoor_humidity_sensor:
                     outdoor_humidity_sensor = outdoor_humidity_sensor.strip()
                     _LOGGER.debug("Selected outdoor humidity sensor: %s", outdoor_humidity_sensor)
-                    # Validering inaktiverad för att tillåta setup
+                    if not hass.states.get(outdoor_humidity_sensor):
+                        errors[CONF_OUTDOOR_HUMIDITY_SENSOR] = "entity_not_found"
                     
                 outdoor_temp_sensor = user_input.get(CONF_OUTDOOR_TEMP_SENSOR)
                 if outdoor_temp_sensor:
                     outdoor_temp_sensor = outdoor_temp_sensor.strip()
                     _LOGGER.debug("Selected outdoor temp sensor: %s", outdoor_temp_sensor)
-                    # Validering inaktiverad för att tillåta setup
+                    if not hass.states.get(outdoor_temp_sensor):
+                        errors[CONF_OUTDOOR_TEMP_SENSOR] = "entity_not_found"
                     
                 power_sensor = user_input.get(CONF_POWER_SENSOR)
                 if power_sensor:
                     power_sensor = power_sensor.strip()
                     _LOGGER.debug("Selected power sensor: %s", power_sensor)
-                    # Validering inaktiverad för att tillåta setup
+                    if not hass.states.get(power_sensor):
+                        errors[CONF_POWER_SENSOR] = "entity_not_found"
                     
                 energy_sensor = user_input.get(CONF_ENERGY_SENSOR)
                 if energy_sensor:
                     energy_sensor = energy_sensor.strip()
                     _LOGGER.debug("Selected energy sensor: %s", energy_sensor)
-                    # Validering inaktiverad för att tillåta setup
+                    if not hass.states.get(energy_sensor):
+                        errors[CONF_ENERGY_SENSOR] = "entity_not_found"
                     
                 voltage_sensor = user_input.get(CONF_VOLTAGE_SENSOR)
                 if voltage_sensor:
                     voltage_sensor = voltage_sensor.strip()
                     _LOGGER.debug("Selected voltage sensor: %s", voltage_sensor)
-                    # Validering inaktiverad för att tillåta setup
+                    if not hass.states.get(voltage_sensor):
+                        errors[CONF_VOLTAGE_SENSOR] = "entity_not_found"
                 
                 if not errors:
                     # Create entry

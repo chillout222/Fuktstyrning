@@ -129,8 +129,24 @@ async def async_register_services(
                 _LOGGER.error("Could not find controller for %s", eid)
                 continue
             ctrl.max_humidity = max_humidity
-            await ctrl._update_schedule()
-            _LOGGER.info("Set max humidity to %s%% for %s", max_humidity, eid)
+            # Regenerate daily schedule with new max humidity
+            await ctrl._create_daily_schedule()
+            _LOGGER.info("Set max humidity to %s%% and regenerated schedule for %s", max_humidity, eid)
+            # Immediate override check based on new threshold
+            humid_state = ctrl.hass.states.get(ctrl.humidity_sensor)
+            if humid_state and humid_state.state not in ("unknown", "unavailable"):
+                try:
+                    current_h = float(humid_state.state)
+                    if current_h >= ctrl.max_humidity:
+                        await ctrl._turn_on_dehumidifier()
+                        ctrl.override_active = True
+                        _LOGGER.debug("Override activated after max_humidity change (%s%%)", current_h)
+                    elif ctrl.override_active and current_h < ctrl.max_humidity - 5:
+                        await ctrl._turn_off_dehumidifier()
+                        ctrl.override_active = False
+                        _LOGGER.debug("Override deactivated after max_humidity change (%s%%)", current_h)
+                except (ValueError, TypeError):
+                    _LOGGER.warning("Humidity sensor state not numeric during max_humidity service: %s", humid_state.state)
 
     # ------------------------------------------------------------------
     # Register the three public services

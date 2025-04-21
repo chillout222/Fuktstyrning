@@ -8,6 +8,7 @@ from homeassistant.components.binary_sensor import (
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
+from homeassistant.helpers.entity import DeviceInfo
 
 from .const import (
     DOMAIN,
@@ -45,6 +46,12 @@ class OptimalRunningBinarySensor(BinarySensorEntity):
         self.hass = hass
         self.entry = entry
         self.controller = controller
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.entry_id)},
+            name="Fuktstyrning Dehumidifier Controller",
+            manufacturer="Fuktstyrning",
+            model="Smart Dehumidifier Control",
+        )
         self._attr_unique_id = f"{entry.entry_id}_{BINARY_SENSOR_OPTIMAL_RUNNING_UNIQUE_ID}"
         self._attr_name = BINARY_SENSOR_OPTIMAL_RUNNING_NAME
         self._attr_is_on = False

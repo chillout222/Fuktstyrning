@@ -20,7 +20,7 @@ from homeassistant.config_entries import ConfigEntry
 from homeassistant.const import UnitOfEnergy, UnitOfTime
 from .const import CONF_HUMIDITY_SENSOR, CONF_POWER_SENSOR, CONF_ENERGY_SENSOR
 from homeassistant.core import HomeAssistant
-from homeassistant.helpers.entity import EntityCategory
+from homeassistant.helpers.entity import EntityCategory, DeviceInfo
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 from homeassistant.helpers.typing import StateType
 
@@ -100,6 +100,12 @@ class CostSavingsSensor(SensorEntity):
             ATTR_OPTIMAL_PRICE: None,
             ATTR_SCHEDULE: None,
         }
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.entry_id)},
+            name="Fuktstyrning Dehumidifier Controller",
+            manufacturer="Fuktstyrning",
+            model="Smart Dehumidifier Control",
+        )
 
     async def async_update(self) -> None:  # type: ignore[override]
         self._attr_native_value = self.controller.cost_savings
@@ -150,6 +156,12 @@ class HumidityPredictionSensor(SensorEntity):
         self._attr_name = SENSOR_HUMIDITY_PREDICTION_NAME
         self._attr_native_value: float | None = None
         self._attr_extra_state_attributes: Dict[str, Any] = {ATTR_NEXT_RUN: None}
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.entry_id)},
+            name="Fuktstyrning Dehumidifier Controller",
+            manufacturer="Fuktstyrning",
+            model="Smart Dehumidifier Control",
+        )
 
     async def async_update(self) -> None:  # type: ignore[override]
         humidity_state = self.hass.states.get(self.controller.humidity_sensor)
@@ -237,6 +249,12 @@ class LearningModelSensor(SensorEntity):
         self._attr_name = "Dehumidifier Learning Model"
         self._attr_native_value = "learning"
         self._attr_extra_state_attributes: Dict[str, Any] = {}
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.entry_id)},
+            name="Fuktstyrning Dehumidifier Controller",
+            manufacturer="Fuktstyrning",
+            model="Smart Dehumidifier Control",
+        )
 
     async def async_update(self) -> None:  # type: ignore[override]
         try:
@@ -280,7 +298,13 @@ class DewPointSensor(SensorEntity):
         self._attr_unique_id = f"{entry.entry_id}_{SENSOR_DEW_POINT_UNIQUE_ID}"
         self._attr_name = SENSOR_DEW_POINT_NAME
         self._attr_native_value = None
-        
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.entry_id)},
+            name="Fuktstyrning Dehumidifier Controller",
+            manufacturer="Fuktstyrning",
+            model="Smart Dehumidifier Control",
+        )
+
     async def async_update(self) -> None:
         """Update the dew point calculation."""
         try:
@@ -345,7 +369,13 @@ class PowerSensor(SensorEntity):
         self._attr_extra_state_attributes = {
             ATTR_ENERGY_EFFICIENCY: None,
         }
-        
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.entry_id)},
+            name="Fuktstyrning Dehumidifier Controller",
+            manufacturer="Fuktstyrning",
+            model="Smart Dehumidifier Control",
+        )
+
     async def async_update(self) -> None:
         """Update the power usage."""
         try:
