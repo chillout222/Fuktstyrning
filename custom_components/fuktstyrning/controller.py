@@ -254,19 +254,17 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
 
         # ---  Hitta hur många timmar som faktiskt BEHÖVS ---------------
         humid_state = self.hass.states.get(self.humidity_sensor)
-        # Validate numeric humidity state
-        if not humid_state or humid_state.state in ("unknown", "unavailable"):
+        # Validate humidity sensor availability
+        if humid_state is None:
             _LOGGER.warning(
-                "Humidity sensor %s not available (%s), skipping schedule",
-                self.humidity_sensor,
-                humid_state.state if humid_state else None
+                "Humidity sensor %s not found, skipping schedule",
+                self.humidity_sensor
             )
             return
-        try:
-            current_humidity = float(humid_state.state)
-        except (TypeError, ValueError):
-            _LOGGER.warning(
-                "Humidity sensor state not numeric (%s), skipping schedule update",
+        if humid_state.state in ("unknown", "unavailable"):
+            _LOGGER.debug(
+                "Humidity sensor %s state '%s' invalid, skipping schedule",
+                self.humidity_sensor,
                 humid_state.state
             )
             return
@@ -293,7 +291,7 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
             if weather_state and weather_state.state not in ("unknown", "unavailable"):
                 weather = weather_state.state
         hours_needed = self.learning_module.predict_hours_needed(
-            current_humidity=current_humidity,
+            current_humidity=float(humid_state.state),
             target_humidity=target_humidity,
             temperature=temperature,
             weather=weather,
@@ -419,7 +417,7 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
             _LOGGER.debug("async_handle_humidity_change: new_state is None for %s, ignoring", entity_id)
             return
         if new_state.state in ("unknown", "unavailable"):
-            _LOGGER.warning(
+            _LOGGER.debug(
                 "async_handle_humidity_change: Sensor %s state '%s' not available, skipping",
                 entity_id,
                 new_state.state
