@@ -238,16 +238,27 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
 
     async def _create_daily_schedule(self) -> None:
         """Build a 24‑h schedule based on price forecast and humidity."""
+        from homeassistant.const import STATE_UNKNOWN, STATE_UNAVAILABLE
+        from homeassistant.exceptions import ConfigEntryNotReady
+
+        sensor_state = self.hass.states.get(self.humidity_sensor)
+        if sensor_state is None or sensor_state.state in (STATE_UNKNOWN, STATE_UNAVAILABLE):
+            # händer när ZHA inte är färdig vid boot
+            raise ConfigEntryNotReady(
+                f"Humidity sensor {self.humidity_sensor} not ready yet"
+            )
+
+        current_humidity = float(sensor_state.state)
+        now_h = dt_util.now().hour
+        from .scheduler import build_optimized_schedule
+
         try:
             price_forecast = self._get_price_forecast()
         except UpdateFailed as e:
             _LOGGER.warning("Price forecast unavailable (%s), skipping schedule", e)
             return
-        now_h = dt_util.now().hour
-        from .scheduler import build_optimized_schedule
-
         schedule_list = build_optimized_schedule(
-            current_humidity=float(self.hass.states.get(self.humidity_sensor).state),
+            current_humidity=current_humidity,
             max_humidity=self.max_humidity,
             price_forecast=price_forecast,
             reduction_rate=self.dehumidifier_data.get("time_to_reduce", 1.5),
