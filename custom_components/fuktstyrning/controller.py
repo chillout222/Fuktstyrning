@@ -246,38 +246,37 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
             raise ConfigEntryNotReady(f"Humidity sensor {self.humidity_sensor} not ready yet")
         # Hämta aktuell fuktighet och modellparametrar
         current_humidity = float(sensor_state.state)
-        model = self.dehumidifier_data or {}
-        reduction_rate = float(model.get("time_to_reduce", 1.5))
-        increase_rate = float(model.get("time_to_increase", 0.4))
-        now_h = dt_util.now().hour
-        from .scheduler import build_optimized_schedule
+
+        # Läs temperatur och väder
+        temp_state = self.hass.states.get(self.outdoor_temp_sensor)
+        if temp_state and temp_state.state not in (STATE_UNKNOWN, STATE_UNAVAILABLE):
+            try:
+                temperature = float(temp_state.state)
+            except (ValueError, TypeError):
+                temperature = None
+        else:
+            temperature = None
+        weather_state = self.hass.states.get(self.weather_entity)
+        weather = weather_state.state if weather_state and weather_state.state not in (STATE_UNKNOWN, STATE_UNAVAILABLE) else None
 
         try:
             price_forecast = self._get_price_forecast()
         except UpdateFailed as e:
             _LOGGER.warning("Price forecast unavailable (%s), skipping schedule", e)
             return
-        schedule_list = build_optimized_schedule(
-            current_humidity=current_humidity,
-            max_humidity=self.max_humidity,
-            price_forecast=price_forecast,
-            reduction_rate=reduction_rate,
-            increase_rate=increase_rate,
-            alpha=0.8,
+
+        # Beräkna antal timmar som behövs med lärmodellen
+        hours_needed = self.learning_module.predict_hours_needed(
+            current_humidity, self.max_humidity, temperature, weather
         )
-        # Adjust schedule based on ground_state
-        if self.ground_state == "Ej torr":
-            free = [(price_forecast[i], i) for i, run in enumerate(schedule_list) if not run]
-            if free:
-                _, idx = min(free)
-                schedule_list[idx] = True
-                _LOGGER.info("Added extra hour %d for ground_state 'Ej torr'", idx)
-        elif self.ground_state == "Torr":
-            scheduled = [(price_forecast[i], i) for i, run in enumerate(schedule_list) if run]
-            if scheduled:
-                _, idx = max(scheduled)
-                schedule_list[idx] = False
-                _LOGGER.info("Removed hour %d for ground_state 'Torr'", idx)
+        # Välj de billigaste timmarna ur prisprognosen
+        hour_price_pairs = [(price, idx) for idx, price in enumerate(price_forecast)]
+        hour_price_pairs.sort(key=lambda x: x[0])
+        selected_indices = [idx for _, idx in hour_price_pairs[:hours_needed]]
+        # Skapa lista för schema
+        schedule_list = [i in selected_indices for i in range(len(price_forecast))]
+        # Aktuell timme för mapping
+        now_h = dt_util.now().hour
         self.schedule = {
             (now_h + i) % 24: run
             for i, run in enumerate(schedule_list[:24])
