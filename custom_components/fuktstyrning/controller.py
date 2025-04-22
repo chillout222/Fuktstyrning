@@ -23,6 +23,8 @@ from homeassistant.components.recorder import get_instance
 from homeassistant.helpers.storage import Store
 from homeassistant.helpers.event import async_track_state_change_event, async_call_later
 from homeassistant.helpers.update_coordinator import UpdateFailed
+from homeassistant.const import STATE_UNKNOWN, STATE_UNAVAILABLE
+from homeassistant.exceptions import ConfigEntryNotReady
 
 from .learning import DehumidifierLearningModule
 from .const import (
@@ -238,17 +240,15 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
 
     async def _create_daily_schedule(self) -> None:
         """Build a 24‑h schedule based on price forecast and humidity."""
-        from homeassistant.const import STATE_UNKNOWN, STATE_UNAVAILABLE
-        from homeassistant.exceptions import ConfigEntryNotReady
-
+        # Retry‑mekanism för fördröjd luftfuktighetssensor vid uppstart
         sensor_state = self.hass.states.get(self.humidity_sensor)
         if sensor_state is None or sensor_state.state in (STATE_UNKNOWN, STATE_UNAVAILABLE):
-            # händer när ZHA inte är färdig vid boot
-            raise ConfigEntryNotReady(
-                f"Humidity sensor {self.humidity_sensor} not ready yet"
-            )
-
+            raise ConfigEntryNotReady(f"Humidity sensor {self.humidity_sensor} not ready yet")
+        # Hämta aktuell fuktighet och modellparametrar
         current_humidity = float(sensor_state.state)
+        model = self.dehumidifier_data or {}
+        reduction_rate = float(model.get("time_to_reduce", 1.5))
+        increase_rate = float(model.get("time_to_increase", 0.4))
         now_h = dt_util.now().hour
         from .scheduler import build_optimized_schedule
 
@@ -261,10 +261,8 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
             current_humidity=current_humidity,
             max_humidity=self.max_humidity,
             price_forecast=price_forecast,
-            reduction_rate=self.dehumidifier_data.get("time_to_reduce", 1.5),
-            increase_rate=self.dehumidifier_data.get("time_to_increase", 0.4),
-            peak_hours=[17, 18, 19, 20, 21],
-            base_buffer=3.0,
+            reduction_rate=reduction_rate,
+            increase_rate=increase_rate,
             alpha=0.8,
         )
         # Adjust schedule based on ground_state
