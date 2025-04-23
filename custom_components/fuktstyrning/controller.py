@@ -25,7 +25,7 @@ from homeassistant.helpers.event import async_track_state_change_event, async_ca
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from homeassistant.const import STATE_UNKNOWN, STATE_UNAVAILABLE
 from homeassistant.exceptions import ConfigEntryNotReady
-
+from .scheduler import build_optimized_schedule
 from .learning import DehumidifierLearningModule
 from .const import (
     CONF_HUMIDITY_SENSOR,
@@ -175,7 +175,6 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
         # Respect smart-control switch
         if not self.smart_enabled:
             return
-        """Main loop called by the integration's time pattern trigger."""
         now = dt_util.now()
         # override if humidity > threshold
         humidity_state = self.hass.states.get(self.humidity_sensor)
@@ -288,31 +287,23 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
             _LOGGER.warning("Price forecast unavailable (%s), skipping schedule", e)
             return
 
-        # Beräkna antal timmar som behövs med lärmodellen
-        hours_needed = self.learning_module.predict_hours_needed(
-            current_humidity, self.max_humidity, temperature, weather
+        # Bygg optimerat schema med hänsyn till kostnad och fukt
+        schedule_list = build_optimized_schedule(
+            current_humidity=current_humidity,
+            max_humidity=self.max_humidity,
+            price_forecast=price_forecast,
+            reduction_rate=self.learning_module.predict_reduction_rate(current_humidity, temperature, weather),
+            increase_rate=max(0.0, (current_humidity - self.max_humidity) / 24.0),
+            peak_hours=None,
+            alpha=1.0
         )
-        # --- Fallback: se till att vi alltid får något schema ------------
-        if hours_needed <= 0:          # om modellen ger 0 eller negativt
-            hours_needed = 2           # kör minst 2 timmar i dag
-        if hours_needed > 24:          # extra skydd, borde aldrig hända
-            hours_needed = 24
-        # Välj de billigaste timmarna ur prisprognosen
-        hour_price_pairs = [(price, idx) for idx, price in enumerate(price_forecast)]
-        hour_price_pairs.sort(key=lambda x: x[0])
-        selected_indices = [idx for _, idx in hour_price_pairs[:hours_needed]]
-        # Skapa lista för schema
-        schedule_list = [i in selected_indices for i in range(len(price_forecast))]
-        # Aktuell timme för mapping
+        # Mappa schema till klockslag (24h)
         now_h = dt_util.now().hour
-        self.schedule = {
-            (now_h + i) % 24: run
-            for i, run in enumerate(schedule_list[:24])
-        }
+        self.schedule = { (now_h + i) % 24: run for i, run in enumerate(schedule_list[:24]) }
         self.schedule_created_date = dt_util.now()
         _LOGGER.info(
-            "Generated optimized schedule %s (created %s)",
-            self.schedule,
+            "Generated schedule with %d hours (created %s)",
+            sum(1 for r in self.schedule.values() if r),
             self.schedule_created_date,
         )
 
@@ -470,6 +461,7 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
             )
             await self._turn_on_dehumidifier()
             self.override_active = True
+            _LOGGER.warning("Override ON: risk for mold, ignoring price schedule")
         elif self.override_active and new_humidity < self.max_humidity - 5:
             _LOGGER.info(
                 "async_handle_humidity_change: Humidity %.2f%% < hysteresis threshold %.2f%%, deactivating override",
@@ -478,6 +470,7 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
             )
             await self._turn_off_dehumidifier()
             self.override_active = False
+            _LOGGER.warning("Override OFF: humidity back under control")
 
     async def _monitor_rise(self, now) -> None:
         """Monitor humidity rise after dehumidifier is turned off."""
