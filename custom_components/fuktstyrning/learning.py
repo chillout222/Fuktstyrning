@@ -1019,11 +1019,25 @@ class DehumidifierLearningModule:
         
     async def async_reset(self) -> None:
         """Reset learning tables and clear history."""
+        # Återställ lokala tabeller
         self.time_to_reduce.clear()
         self.time_to_increase.clear()
         self.humidity_data.clear()
-        # Optionally seed with default starting values
+        
+        # Återställ även tabeller i controller.dehumidifier_data
+        if "weather_impact" in self.controller.dehumidifier_data:
+            self.controller.dehumidifier_data["weather_impact"] = {}
+        if "temp_impact" in self.controller.dehumidifier_data:
+            self.controller.dehumidifier_data["temp_impact"] = {}
+        if "humidity_diff_impact" in self.controller.dehumidifier_data:
+            self.controller.dehumidifier_data["humidity_diff_impact"] = {}
+        if "energy_efficiency" in self.controller.dehumidifier_data:
+            self.controller.dehumidifier_data["energy_efficiency"] = {}
+            
+        # Initiera med standardvärden
         self.time_to_reduce.update({"70_to_65": 30, "65_to_60": 45})
         self.time_to_increase.update({"60_to_65": 15, "65_to_70": 24.1})
+        
+        # Spara den återställda datan
         await self.save_learning_data()
         _LOGGER.info("Learning module reset completed")

@@ -48,15 +48,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     async def _async_learning_reset(call):
         """Handle fuktstyrning.learning_reset."""
-        target_id = call.data.get("entry_id")
-        ctrls = (
-            [hass.data[DOMAIN].get(target_id)["controller"]]
-            if target_id
-            else [v["controller"] for v in hass.data[DOMAIN].values()]
-        )
-        for ctrl in filter(None, ctrls):
-            await ctrl.learning_module.async_reset()
-            _LOGGER.warning("Learning module reset for %s", ctrl.entry_id)
+        try:
+            target_id = call.data.get("entry_id")
+            
+            if target_id:
+                # Kontrollera att entry_id finns
+                if target_id not in hass.data[DOMAIN]:
+                    _LOGGER.error("Invalid entry_id: %s", target_id)
+                    return
+                ctrls = [hass.data[DOMAIN][target_id]["controller"]]
+            else:
+                ctrls = [v["controller"] for v in hass.data[DOMAIN].values()]
+                
+            for ctrl in filter(None, ctrls):
+                await ctrl.learning_module.async_reset()
+                _LOGGER.warning("Learning module reset for %s", ctrl.entry_id)
+        except Exception as e:
+            _LOGGER.error("Error during learning reset: %s", str(e))
 
     hass.services.async_register(
         DOMAIN,
