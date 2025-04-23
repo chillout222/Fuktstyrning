@@ -193,6 +193,8 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
             weather = self.hass.states.get(self.weather_entity).state if self.weather_entity else None
             out_rh = self.hass.states.get(self.outdoor_humidity_sensor)
             out_t = self.hass.states.get(self.outdoor_temp_sensor)
+
+            # Temperatur från inomhus-sensorn (om attribut finns)
             temperature = None
             humidity_state = self.hass.states.get(self.humidity_sensor)
             if humidity_state and humidity_state.attributes.get("temperature") is not None:
@@ -204,13 +206,34 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
                         "Temperature attribute not numeric (%s), ignoring temperature",
                         temp_attr
                     )
-                    temperature = None
-            power = float(self.hass.states.get(self.power_sensor).state) if self.power_sensor else None
-            energy = float(self.hass.states.get(self.energy_sensor).state) if self.energy_sensor else None
+
+            # Effekt & energi
+            power  = None
+            energy = None
+            if self.power_sensor:
+                try:
+                    power = float(self.hass.states.get(self.power_sensor).state)
+                except (TypeError, ValueError):
+                    pass
+            if self.energy_sensor:
+                try:
+                    energy = float(self.hass.states.get(self.energy_sensor).state)
+                except (TypeError, ValueError):
+                    pass
+
+            # Avfuktaren anses *på* om:
+            #  • schemat säger det, eller
+            #  • override är aktiv, eller
+            #  • effekt­sensorn visar > 10 W (manuell start)
+            is_on = (
+                self.override_active
+                or self.schedule.get(now.hour, False)
+                or (power is not None and power > 10)
+            )
 
             self.learning_module.record_humidity_data(
                 humidity=current_humidity,
-                dehumidifier_on=self.override_active or self.schedule.get(now.hour, False),
+                dehumidifier_on=is_on,
                 temperature=temperature,
                 weather=weather,
                 outdoor_humidity=float(out_rh.state) if out_rh else None,
