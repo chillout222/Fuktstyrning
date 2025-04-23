@@ -527,3 +527,16 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
             gs = "Neutral"
         self.ground_state = gs
         _LOGGER.info("Ground state %s (rise_rate=%.3f%%/min)", gs, rise_rate)
+        
+    # -----------------------------------------------------------
+    # Publikt anrop från service fuktstyrning.learning_reset
+    # -----------------------------------------------------------
+    async def async_reset_learning(self) -> None:
+        """Nollställ inlärningsmodulen och spara state-sensorer."""
+        await self.learning_module.async_reset()  # metod i learning.py
+        _LOGGER.warning("Learning module reset via service call")
+
+        # Uppdatera sensorer som visar inlärda värden (om de finns)
+        for entity_id in self.hass.states.async_entity_ids("sensor"):
+            if entity_id.startswith("sensor.fuktstyrning_learning_"):
+                self.hass.states.async_set(entity_id, 0)

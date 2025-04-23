@@ -1,6 +1,6 @@
 """The Fuktstyrning integration."""
 import logging
-from homeassistant.core import HomeAssistant
+from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.config_entries import ConfigEntry
 
 from .const import DOMAIN, PLATFORMS
@@ -44,6 +44,38 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     # 6) Registrera custom services
     await async_register_services(hass, entry, controller)
+
+    # ------------------------------------------------------------------
+    # SERVICE: fuktstyrning.learning_reset
+    # ------------------------------------------------------------------
+    async def async_handle_learning_reset(call: ServiceCall) -> None:
+        """Återställ ML-modulen för en eller alla instanser.
+
+        Service-data (valfritt):
+          entry_id:  specifik config_entry att återställa.
+        """
+        entry_id = call.data.get("entry_id")
+        targets = []
+        
+        if entry_id:
+            entry_data = hass.data[DOMAIN].get(entry_id)
+            if entry_data and "controller" in entry_data:
+                targets.append(entry_data["controller"])
+        else:
+            # Alla controllers
+            for entry_data in hass.data[DOMAIN].values():
+                if "controller" in entry_data:
+                    targets.append(entry_data["controller"])
+        
+        for ctrl in targets:
+            await ctrl.async_reset_learning()
+            _LOGGER.info("Learning data återställd för controller %s", entry_id or "alla")
+
+    hass.services.async_register(
+        DOMAIN,
+        "learning_reset",
+        async_handle_learning_reset,
+    )
 
     return True
 

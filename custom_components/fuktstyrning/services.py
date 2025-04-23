@@ -20,6 +20,7 @@ from .const import (
     SERVICE_UPDATE_SCHEDULE,
     SERVICE_RESET_COST_SAVINGS,
     SERVICE_SET_MAX_HUMIDITY,
+    SERVICE_LEARNING_RESET,
     CONF_MAX_HUMIDITY,
     ATTR_ENTITY_ID,
     SMART_SWITCH_UNIQUE_ID,
@@ -148,8 +149,41 @@ async def async_register_services(
                 except (ValueError, TypeError):
                     _LOGGER.warning("Humidity sensor state not numeric during max_humidity service: %s", humid_state.state)
 
+    async def handle_learning_reset(call: ServiceCall) -> None:
+        # Check if a specific entry_id was provided
+        entry_id = call.data.get("entry_id")
+        
+        # Keep track of how many instances were reset
+        reset_count = 0
+        
+        # Iterate through all registered controllers
+        for config_entry_id, data in hass.data.get(DOMAIN, {}).items():
+            # Skip if entry_id was specified and doesn't match
+            if entry_id and config_entry_id != entry_id:
+                continue
+                
+            ctrl = data.get("controller")
+            if not ctrl:
+                continue
+                
+            # Reset learning data via learning module
+            if hasattr(ctrl, "learning_module") and ctrl.learning_module is not None:
+                await ctrl.learning_module.async_reset()
+                reset_count += 1
+                _LOGGER.info("Reset learning data for config entry %s", config_entry_id)
+            else:
+                _LOGGER.error("No learning module found for config entry %s", config_entry_id)
+        
+        if reset_count == 0:
+            if entry_id:
+                _LOGGER.warning("No matching learning module found for entry_id: %s", entry_id)
+            else:
+                _LOGGER.warning("No learning modules found to reset")
+        else:
+            _LOGGER.info("Reset %d learning module(s)", reset_count)
+
     # ------------------------------------------------------------------
-    # Register the three public services
+    # Register the four public services
     # ------------------------------------------------------------------
 
     hass.services.async_register(
@@ -177,4 +211,13 @@ async def async_register_services(
                 )
             }
         ),
+    )
+    
+    hass.services.async_register(
+        DOMAIN,
+        SERVICE_LEARNING_RESET,
+        handle_learning_reset,
+        schema=vol.Schema({
+            vol.Optional("entry_id"): cv.string,
+        }),
     )

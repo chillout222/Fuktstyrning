@@ -14,7 +14,7 @@ from homeassistant.helpers.json import JSONEncoder
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, LEARNING_STORAGE_KEY
+from .const import DOMAIN, LEARNING_STORAGE_KEY, DEFAULT_LAMBDA
 
 try:
     import aiofiles
@@ -26,6 +26,23 @@ _LOGGER = logging.getLogger(__name__)
 
 class DehumidifierLearningModule:
     """Module for learning how humidity changes in the crawl space."""
+    
+    ERROR_ENTITY_ID = "sensor.dehumidifier_learning_error"
+
+    # -----------------------------------------------------------
+    # Hjälpmetod: konvertera RH-värde till intervall-nyckel
+    # -----------------------------------------------------------
+    @staticmethod
+    def _get_interval(rh: float) -> str:
+        """Returnera nyckel som matchar modell-tabellerna."""
+        if rh >= 70:
+            return "70_to_65"
+        elif rh >= 65:
+            return "65_to_60"
+        elif rh >= 60:
+            return "60_to_55"
+        else:
+            return "55_to_50"
 
     def __init__(self, hass, controller):
         """Initialize the learning module."""
@@ -49,6 +66,17 @@ class DehumidifierLearningModule:
         )
         self.min_data_points_for_update = 5
         self._unsub_interval = None
+        
+        # -------------------------------------------------------
+        # Peka mot gemensamma inlärnings-tabeller i controllern
+        # (skapas om de inte finns).
+        # -------------------------------------------------------
+        self.time_to_reduce = self.controller.dehumidifier_data.setdefault(
+            "time_to_reduce", {}
+        )
+        self.time_to_increase = self.controller.dehumidifier_data.setdefault(
+            "time_to_increase", {}
+        )
         
         # Weather condition categories
         self.weather_categories = {
@@ -423,6 +451,29 @@ class DehumidifierLearningModule:
             _LOGGER.info(f"Not enough data points yet ({len(self.humidity_data)})")
             return
             
+        # --- 1. Beräkna pred vs actual diff senaste timmen ---
+        if len(self.humidity_data) >= 2:
+            actual_change = (
+                self.humidity_data[-1]["humidity"]
+                - self.humidity_data[-2]["humidity"]
+            )
+        else:
+            actual_change = 0.0
+
+        predicted_change = self.predict_change_last_hour()
+        error = round(actual_change - predicted_change, 2)
+
+        # --- 2. Publicera som sensor via states-API ---
+        self.hass.states.async_set(
+            self.ERROR_ENTITY_ID,
+            error,
+            {
+                "unit_of_measurement": "%/h",
+                "friendly_name": "ML-fel (%RH/h)",
+                "icon": "mdi:chart-bell-curve-cumulative",
+            },
+        )
+        
         # Analyze how humidity decreases when dehumidifier is on
         self._analyze_humidity_reduction()
         
@@ -913,6 +964,47 @@ class DehumidifierLearningModule:
                 self.controller.dehumidifier_data["energy_efficiency"][category] = round(new_value, 2)
                 _LOGGER.info(f"Updated energy efficiency for {category}: {new_value:.2f} Wh per % humidity")
 
+    def predict_change_last_hour(self) -> float:
+        """Prognostiserad RH-förändring (± %/h) för den senaste timmen."""
+
+        # 1. Minst två mätpunkter krävs
+        if len(self.humidity_data) < 2:
+            return 0.0
+
+        latest = self.humidity_data[-1]
+        prev   = self.humidity_data[-2]
+
+        # 2. Tidsdifferens i timmar
+        try:
+            dt_latest = datetime.fromisoformat(latest["timestamp"])
+            dt_prev   = datetime.fromisoformat(prev["timestamp"])
+        except (ValueError, KeyError, TypeError):
+            _LOGGER.warning("predict_change_last_hour: felaktigt timestamp-format")
+            return 0.0
+
+        hours_diff = (dt_latest - dt_prev).total_seconds() / 3600.0
+        if hours_diff <= 0:
+            return 0.0
+
+        # 3. Bestäm intervall-nyckel
+        rh_now   = latest["humidity"]
+        interval = self._get_interval(rh_now)
+
+        # 4. Slå upp modellvärde beroende på om avfuktaren var PÅ/AV
+        if latest.get("dehumidifier_on"):
+            minutes = self.time_to_reduce.get(interval)
+            if not minutes:
+                return 0.0
+            change_per_hour = -60.0 / minutes   # negativ – RH sjunker
+        else:
+            minutes = self.time_to_increase.get(interval)
+            if not minutes:
+                return 0.0
+            change_per_hour =  60.0 / minutes   # positiv – RH stiger
+
+        # 5. Skala efter faktisk tidsdiff
+        return round(change_per_hour * hours_diff, 2)
+        
     def get_current_model(self):
         """Return the current learning model data for display."""
         return {
@@ -924,3 +1016,36 @@ class DehumidifierLearningModule:
             "energy_efficiency": self.controller.dehumidifier_data.get("energy_efficiency", {}),
             "data_points": len(self.humidity_data)
         }
+        
+    # -----------------------------------------------------------
+    # =====  ÅTERSTÄLL (kallas av service)  ======================
+    # -----------------------------------------------------------
+    async def async_reset(self) -> None:
+        """Återställ alla inlärda parametrar till default-värden."""
+        _LOGGER.warning("DehumidifierLearningModule – reset to defaults")
+
+        # Standardtabeller – justera om du vill ha andra startvärden
+        self.controller.dehumidifier_data["time_to_reduce"] = {
+            "70_to_65": 30,
+            "65_to_60": 45,
+        }
+        self.controller.dehumidifier_data["time_to_increase"] = {
+            "60_to_65": 15,
+            "65_to_70": 24.1,
+        }
+
+        # Töm historik
+        self.humidity_data.clear()
+        if hasattr(self, "_events"):
+            self._events.clear()
+        if hasattr(self, "_max_humidity_window"):
+            self._max_humidity_window.clear()
+
+        # Persistera direkt
+        await self._store.async_save(
+            {
+                "lambda": self.controller.dehumidifier_data.get("lambda", DEFAULT_LAMBDA),  # behåll ev. λ-data
+                "time_to_reduce": self.controller.dehumidifier_data["time_to_reduce"],
+                "time_to_increase": self.controller.dehumidifier_data["time_to_increase"],
+            }
+        )

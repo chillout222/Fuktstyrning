@@ -36,6 +36,13 @@ class LambdaManager:
         self._hass = hass
         self._store = Store(hass, 2, LAMBDA_STORAGE_KEY)  # Version 2 för framtida migration
         
+        # -----------------------------------------------------------
+        # MIGRERING: säkerställ att lagring är på version ≥ 2
+        # -----------------------------------------------------------
+        if self._store.version < 2:
+            _LOGGER.info("Migrerar lambda-lagring från v%s till v2 …", self._store.version)
+            await self._migrate_v1_to_v2()
+        
         # Ladda sparad data
         stored_data = await self._store.async_load()
         
@@ -173,6 +180,28 @@ class LambdaManager:
             # Efter justering, uppdatera state
             self._update_sensor_state()
         
+    # -----------------------------------------------------------
+    # ===  MIGRERING V1 → V2  ====================================
+    # -----------------------------------------------------------
+    async def _migrate_v1_to_v2(self) -> None:
+        """Migrera befintlig lagring till schema-version 2.
+
+        v1 lagrade endast 'lambda'.  I v2 inför vi fältet
+        'base_lambda' (ursprungligt grundvärde) för att
+        kunna beräkna min/max-clamp som faktor × base.
+        """
+        data: dict[str, Any] | None = await self._store.async_load()
+        data = data or {}
+
+        # Lägg till nytt fält om det saknas
+        if "lambda" in data and "initial_lambda" not in data:
+            data["initial_lambda"] = data["lambda"]
+
+        # Uppdatera versionsnummer och spara
+        await self._store.async_save(data)
+        self._store.version = 2
+        _LOGGER.info("Migrering till v2 klar – data: %s", data)
+    
     async def _save_data(self) -> None:
         """Save lambda data to storage."""
         if self._store:

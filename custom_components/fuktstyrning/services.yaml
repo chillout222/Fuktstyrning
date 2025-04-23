@@ -33,3 +33,15 @@ set_max_humidity:
           step: 1
           unit_of_measurement: "%"
           mode: slider
+
+learning_reset:
+  name: Återställ inlärningsmodul
+  description: >
+    Nollställer alla inlärda parametrar i DehumidifierLearningModule.
+    Om *entry_id* inte anges återställs alla instanser.
+  fields:
+    entry_id:
+      example: "1234abcd5678efgh"
+      selector:
+        text:
+      description: (valfritt) Specifik config_entry att återställa
