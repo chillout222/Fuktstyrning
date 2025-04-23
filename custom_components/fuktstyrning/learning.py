@@ -547,9 +547,9 @@ class DehumidifierLearningModule:
                 if key not in self.controller.dehumidifier_data["time_to_reduce"]:
                     self.controller.dehumidifier_data["time_to_reduce"][key] = 5  # Default
                     
-                # Update with exponential moving average (75% old, 25% new)
+                # Update with exponential moving average (60% old, 40% new)
                 old_value = self.controller.dehumidifier_data["time_to_reduce"][key]
-                new_value = (0.75 * old_value) + (0.25 * median_time)
+                new_value = (0.60 * old_value) + (0.40 * median_time)
                 
                 # Round to nearest tenth of a minute
                 self.controller.dehumidifier_data["time_to_reduce"][key] = round(new_value, 1)
@@ -613,9 +613,9 @@ class DehumidifierLearningModule:
                     default_value = 5 if "65_to_70" in key else 1  # Default values
                     self.controller.dehumidifier_data["time_to_increase"][key] = default_value
                     
-                # Update with exponential moving average (80% old, 20% new)
+                # Update with exponential moving average (60% old, 40% new)
                 old_value = self.controller.dehumidifier_data["time_to_increase"][key]
-                new_value = (0.8 * old_value) + (0.2 * median_time)
+                new_value = (0.60 * old_value) + (0.40 * median_time)
                 
                 # Round to nearest tenth of an hour
                 self.controller.dehumidifier_data["time_to_increase"][key] = round(new_value, 1)
