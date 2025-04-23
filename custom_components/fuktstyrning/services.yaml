@@ -35,13 +35,13 @@ set_max_humidity:
           mode: slider
 
 learning_reset:
-  name: Återställ inlärningsmodul
+  name: Reset learning model
   description: >
-    Nollställer alla inlärda parametrar i DehumidifierLearningModule.
-    Om *entry_id* inte anges återställs alla instanser.
+    Resets all learned parameters (time_to_reduce/increase, events, etc.)
+    for one controller or all if no entry_id is given.
   fields:
     entry_id:
-      example: "1234abcd5678efgh"
+      description: "(optional) specific config_entry_id to reset"
       selector:
         text:
-      description: (valfritt) Specifik config_entry att återställa
+      example: "1234abcd5678efgh"

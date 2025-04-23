@@ -3,11 +3,12 @@ import logging
 from homeassistant.core import HomeAssistant, ServiceCall
 from homeassistant.config_entries import ConfigEntry
 
-from .const import DOMAIN, PLATFORMS
+from .const import DOMAIN, PLATFORMS, SERVICE_LEARNING_RESET
 from .controller import FuktstyrningController
 from .scheduler import Scheduler
 from .persistence import Persistence
 from .services import async_register_services
+from .learning import DehumidifierLearningModule  # <- behövs för type check
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -42,39 +43,25 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Attach scheduler for shutdown
     controller.scheduler = scheduler
 
-    # 6) Registrera custom services
+    # 6) Registrera custom services + learning_reset
     await async_register_services(hass, entry, controller)
 
-    # ------------------------------------------------------------------
-    # SERVICE: fuktstyrning.learning_reset
-    # ------------------------------------------------------------------
-    async def async_handle_learning_reset(call: ServiceCall) -> None:
-        """Återställ ML-modulen för en eller alla instanser.
-
-        Service-data (valfritt):
-          entry_id:  specifik config_entry att återställa.
-        """
-        entry_id = call.data.get("entry_id")
-        targets = []
-        
-        if entry_id:
-            entry_data = hass.data[DOMAIN].get(entry_id)
-            if entry_data and "controller" in entry_data:
-                targets.append(entry_data["controller"])
-        else:
-            # Alla controllers
-            for entry_data in hass.data[DOMAIN].values():
-                if "controller" in entry_data:
-                    targets.append(entry_data["controller"])
-        
-        for ctrl in targets:
-            await ctrl.async_reset_learning()
-            _LOGGER.info("Learning data återställd för controller %s", entry_id or "alla")
+    async def _async_learning_reset(call):
+        """Handle fuktstyrning.learning_reset."""
+        target_id = call.data.get("entry_id")
+        ctrls = (
+            [hass.data[DOMAIN].get(target_id)["controller"]]
+            if target_id
+            else [v["controller"] for v in hass.data[DOMAIN].values()]
+        )
+        for ctrl in filter(None, ctrls):
+            await ctrl.learning_module.async_reset()
+            _LOGGER.warning("Learning module reset for %s", ctrl.entry_id)
 
     hass.services.async_register(
         DOMAIN,
-        "learning_reset",
-        async_handle_learning_reset,
+        SERVICE_LEARNING_RESET,
+        _async_learning_reset,
     )
 
     return True

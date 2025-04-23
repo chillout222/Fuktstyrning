@@ -1017,35 +1017,13 @@ class DehumidifierLearningModule:
             "data_points": len(self.humidity_data)
         }
         
-    # -----------------------------------------------------------
-    # =====  ÅTERSTÄLL (kallas av service)  ======================
-    # -----------------------------------------------------------
     async def async_reset(self) -> None:
-        """Återställ alla inlärda parametrar till default-värden."""
-        _LOGGER.warning("DehumidifierLearningModule – reset to defaults")
-
-        # Standardtabeller – justera om du vill ha andra startvärden
-        self.controller.dehumidifier_data["time_to_reduce"] = {
-            "70_to_65": 30,
-            "65_to_60": 45,
-        }
-        self.controller.dehumidifier_data["time_to_increase"] = {
-            "60_to_65": 15,
-            "65_to_70": 24.1,
-        }
-
-        # Töm historik
+        """Reset learning tables and clear history."""
+        self.time_to_reduce.clear()
+        self.time_to_increase.clear()
         self.humidity_data.clear()
-        if hasattr(self, "_events"):
-            self._events.clear()
-        if hasattr(self, "_max_humidity_window"):
-            self._max_humidity_window.clear()
-
-        # Persistera direkt
-        await self._store.async_save(
-            {
-                "lambda": self.controller.dehumidifier_data.get("lambda", DEFAULT_LAMBDA),  # behåll ev. λ-data
-                "time_to_reduce": self.controller.dehumidifier_data["time_to_reduce"],
-                "time_to_increase": self.controller.dehumidifier_data["time_to_increase"],
-            }
-        )
+        # Optionally seed with default starting values
+        self.time_to_reduce.update({"70_to_65": 30, "65_to_60": 45})
+        self.time_to_increase.update({"60_to_65": 15, "65_to_70": 24.1})
+        await self.save_learning_data()
+        _LOGGER.info("Learning module reset completed")
