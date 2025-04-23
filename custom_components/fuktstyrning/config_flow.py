@@ -14,6 +14,8 @@ from .const import (
     CONF_WEATHER_ENTITY,
     CONF_MAX_HUMIDITY,
     DEFAULT_MAX_HUMIDITY,
+    CONF_LAMBDA_DEFAULT,
+    DEFAULT_LAMBDA,
     CONF_OUTDOOR_HUMIDITY_SENSOR,
     CONF_OUTDOOR_TEMP_SENSOR,
     CONF_POWER_SENSOR,
@@ -148,6 +150,11 @@ class FuktstyrningConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                     min=50, max=90, step=1, unit_of_measurement="%"
                 )
             ),
+            vol.Optional(CONF_LAMBDA_DEFAULT, default=DEFAULT_LAMBDA): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0.1, max=10.0, step=0.1, unit_of_measurement="SEK/kWh"
+                )
+            ),
         })
 
         return self.async_show_form(
@@ -186,6 +193,14 @@ class OptionsFlowHandler(config_entries.OptionsFlow):
             ): selector.NumberSelector(
                 selector.NumberSelectorConfig(
                     min=50, max=90, step=1, unit_of_measurement="%"
+                )
+            ),
+            vol.Optional(
+                CONF_LAMBDA_DEFAULT,
+                default=options.get(CONF_LAMBDA_DEFAULT, data.get(CONF_LAMBDA_DEFAULT, DEFAULT_LAMBDA))
+            ): selector.NumberSelector(
+                selector.NumberSelectorConfig(
+                    min=0.1, max=10.0, step=0.1, unit_of_measurement="SEK/kWh"
                 )
             ),
             vol.Optional(

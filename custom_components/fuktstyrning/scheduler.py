@@ -44,7 +44,7 @@ def build_optimized_schedule(
     increase_rate: float,
     peak_hours: Sequence[int] | None = None,
     base_buffer: float = 3.0,
-    alpha: float = 0.0,
+    alpha: float,
 ) -> List[bool]:
     assert isinstance(reduction_rate, (int, float)), "reduction_rate must be numeric"
     assert isinstance(increase_rate, (int, float)), "increase_rate must be numeric"

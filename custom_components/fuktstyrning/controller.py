@@ -13,7 +13,8 @@ from __future__ import annotations
 
 import logging
 import math
-from datetime import datetime, time
+import asyncio
+from datetime import datetime, time, timedelta
 from typing import Any, Dict, List, Optional
 
 import homeassistant.util.dt as dt_util
@@ -21,12 +22,13 @@ from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.components.recorder import get_instance
 from homeassistant.helpers.storage import Store
-from homeassistant.helpers.event import async_track_state_change_event, async_call_later
+from homeassistant.helpers.event import async_track_state_change_event, async_call_later, async_track_time_interval
 from homeassistant.helpers.update_coordinator import UpdateFailed
 from homeassistant.const import STATE_UNKNOWN, STATE_UNAVAILABLE
 from homeassistant.exceptions import ConfigEntryNotReady
 from .scheduler import build_optimized_schedule
 from .learning import DehumidifierLearningModule
+from .lambda_manager import LambdaManager
 from .const import (
     CONF_HUMIDITY_SENSOR,
     CONF_PRICE_SENSOR,
@@ -86,6 +88,9 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
         
         # Learning module gets reference to controller so it can read data
         self.learning_module = DehumidifierLearningModule(hass, self)
+        
+        # Lambda manager for balancing cost and humidity
+        self.lambda_manager = LambdaManager()
 
         # Ground state monitoring
         self.time_off: datetime | None = None
@@ -116,6 +121,27 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
         
         # First initialize learning module
         await self.learning_module.initialize()
+        
+        # Initialize lambda manager with average price
+        avg_price = 0.5  # Default value
+        if self.price_sensor:
+            try:
+                price_forecast = self._get_price_forecast()
+                if price_forecast:
+                    avg_price = sum(price_forecast) / len(price_forecast)
+                    _LOGGER.debug("Medelpris idag: %.3f SEK/kWh", avg_price)
+            except Exception as e:
+                _LOGGER.warning("Kunde inte beräkna medelpris: %s", e)
+        
+        await self.lambda_manager.async_init(self.hass, avg_price)
+        
+        # Setup weekly lambda adjustment
+        async_track_time_interval(
+            self.hass,
+            lambda _: asyncio.create_task(self.lambda_manager.weekly_adjust()),
+            timedelta(days=7)
+        )
+        
         # Register callback for price data readiness
         if self.price_sensor:
             self._price_unsub = async_track_state_change_event(
@@ -287,6 +313,12 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
             _LOGGER.warning("Price forecast unavailable (%s), skipping schedule", e)
             return
 
+        # Lagra befintlig fuktighet för weekly adjustment
+        await self.lambda_manager.record_max_humidity(current_humidity, self.max_humidity)
+        
+        # Hämta aktuellt lambda-värde
+        alpha = self.lambda_manager.get_lambda()
+        
         # Bygg optimerat schema med hänsyn till kostnad och fukt
         schedule_list = build_optimized_schedule(
             current_humidity=current_humidity,
@@ -295,7 +327,7 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
             reduction_rate=self.learning_module.predict_reduction_rate(current_humidity, temperature, weather),
             increase_rate=max(0.0, (current_humidity - self.max_humidity) / 24.0),
             peak_hours=None,
-            alpha=1.0
+            alpha=alpha
         )
         # Mappa schema till klockslag (24h)
         now_h = dt_util.now().hour
@@ -459,6 +491,7 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
                 new_humidity,
                 self.max_humidity
             )
+            await self.lambda_manager.record_event(overflow=True)
             await self._turn_on_dehumidifier()
             self.override_active = True
             _LOGGER.warning("Override ON: risk for mold, ignoring price schedule")
@@ -468,6 +501,7 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
                 new_humidity,
                 self.max_humidity - 5
             )
+            await self.lambda_manager.record_event(overflow=False)
             await self._turn_off_dehumidifier()
             self.override_active = False
             _LOGGER.warning("Override OFF: humidity back under control")

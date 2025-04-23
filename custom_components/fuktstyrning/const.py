@@ -14,6 +14,7 @@ CONF_PRICE_SENSOR = "price_sensor"
 CONF_DEHUMIDIFIER_SWITCH = "dehumidifier_switch"
 CONF_WEATHER_ENTITY = "weather_entity"
 CONF_MAX_HUMIDITY = "max_humidity"
+CONF_LAMBDA_DEFAULT = "lambda_default"
 CONF_SCHEDULE_UPDATE_TIME = "schedule_update_time"
 CONF_OUTDOOR_HUMIDITY_SENSOR = "outdoor_humidity_sensor"
 CONF_OUTDOOR_TEMP_SENSOR = "outdoor_temp_sensor"
@@ -25,6 +26,7 @@ CONF_MAX_HUMIDITY = "max_humidity"
 
 # Defaults
 DEFAULT_MAX_HUMIDITY = 70.0
+DEFAULT_LAMBDA = 0.5
 DEFAULT_SCHEDULE_UPDATE_TIME = "13:00"
 
 # Entity attributes
@@ -42,6 +44,7 @@ ATTR_ENERGY_EFFICIENCY = "energy_efficiency"
 # Unique IDs
 CONTROLLER_UNIQUE_ID = "controller"
 SWITCH_UNIQUE_ID = "dehumidifier_switch"
+SENSOR_LAMBDA_UNIQUE_ID = "lambda_parameter"
 SMART_SWITCH_UNIQUE_ID = "dehumidifier_smart_control"  # unique ID for the smart-control switch
 SENSOR_SAVINGS_UNIQUE_ID = "cost_savings"
 SENSOR_HUMIDITY_PREDICTION_UNIQUE_ID = "humidity_prediction"
@@ -59,7 +62,9 @@ BINARY_SENSOR_OPTIMAL_RUNNING_NAME = "Optimal Running Period"
 SENSOR_DEW_POINT_NAME = "Dew Point"
 SENSOR_POWER_NAME = "Power Usage"
 SENSOR_GROUND_STATE_NAME = "Ground State"
+SENSOR_LAMBDA_NAME = "Dehumidifier Lambda"
 
 # Storage
 CONTROLLER_STORAGE_KEY = "fuktstyrning_controller_data"
 LEARNING_STORAGE_KEY = "fuktstyrning_learning_data"
+LAMBDA_STORAGE_KEY = "fuktstyrning_lambda"
