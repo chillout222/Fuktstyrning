@@ -269,6 +269,11 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
         hours_needed = self.learning_module.predict_hours_needed(
             current_humidity, self.max_humidity, temperature, weather
         )
+        # --- Fallback: se till att vi alltid får något schema ------------
+        if hours_needed <= 0:          # om modellen ger 0 eller negativt
+            hours_needed = 2           # kör minst 2 timmar i dag
+        if hours_needed > 24:          # extra skydd, borde aldrig hända
+            hours_needed = 24
         # Välj de billigaste timmarna ur prisprognosen
         hour_price_pairs = [(price, idx) for idx, price in enumerate(price_forecast)]
         hour_price_pairs.sort(key=lambda x: x[0])
