@@ -6,14 +6,6 @@ from typing import Dict, List, Any, Optional
 
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
-from homeassistant.helpers.entity import Entity
-from homeassistant.components.sensor import (
-    SensorEntity,
-    SensorDeviceClass,
-    SensorStateClass,
-)
-from homeassistant.core import callback
-from homeassistant.helpers.entity import DeviceInfo
 import homeassistant.util.dt as dt_util
 
 from .const import DOMAIN
@@ -24,6 +16,8 @@ SENSOR_LAMBDA_UNIQUE_ID = "lambda_parameter"
 SENSOR_LAMBDA_NAME = "Dehumidifier Lambda"
 
 class LambdaManager:
+    
+    ENTITY_ID = "sensor.dehumidifier_lambda"
     """Manager för λ-parametern som balanserar kostnad mot fuktighet."""
 
     def __init__(self):
@@ -62,14 +56,20 @@ class LambdaManager:
                             0.0 if initial_lambda is None else initial_lambda)
             _LOGGER.info("Initierat lambda till %.3f", self._lambda)
         
-        # Skapa och registrera sensor
-        self._lambda_sensor = LambdaSensor(hass, self)
-        hass.async_create_task(self._register_sensor())
+        # Skapa första state
+        self._update_sensor_state()
                 
-    async def _register_sensor(self) -> None:
-        """Register lambda sensor."""
-        from homeassistant.helpers.entity_platform import async_add_entities
-        async_add_entities([self._lambda_sensor], True)
+    def _update_sensor_state(self) -> None:
+        """Sätt eller uppdatera λ-sensorns state via HA-state-API."""
+        self._hass.states.async_set(
+            self.ENTITY_ID,
+            round(self._lambda, 3),
+            {
+                "unit_of_measurement": "SEK/%RH·h",
+                "friendly_name": "Dehumidifier λ",
+                "icon": "mdi:sigma",
+            },
+        )
         
     def get_lambda(self) -> float:
         """Get current lambda value."""
@@ -84,9 +84,8 @@ class LambdaManager:
                 self._lambda = max(min_lambda, min(self._initial_lambda * 5.0, value))
                 _LOGGER.info("Lambda uppdaterad till %.3f", self._lambda)
                 
-                # Uppdatera sensor
-                if self._lambda_sensor:
-                    self._lambda_sensor.async_schedule_update_ha_state(True)
+                # Uppdatera state direkt
+                self._update_sensor_state()
                     
                 # Spara till persistent storage
                 await self._save_data()
@@ -170,6 +169,9 @@ class LambdaManager:
         if adjustment_needed:
             # Tillämpa min/max-gränser och uppdatera värdet
             await self.set_lambda(new_lambda)
+        else:
+            # Efter justering, uppdatera state
+            self._update_sensor_state()
         
     async def _save_data(self) -> None:
         """Save lambda data to storage."""
@@ -183,35 +185,4 @@ class LambdaManager:
             })
 
 
-class LambdaSensor(SensorEntity):
-    """Sensor that displays lambda parameter."""
 
-    _attr_has_entity_name = True
-    _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_native_unit_of_measurement = "SEK/kWh"
-    _attr_icon = "mdi:lambda"
-
-    def __init__(self, hass: HomeAssistant, lambda_manager: LambdaManager):
-        """Initialize the sensor."""
-        self.hass = hass
-        self.lambda_manager = lambda_manager
-        
-        # För entity registry
-        self.entity_id = f"sensor.{DOMAIN}_{SENSOR_LAMBDA_UNIQUE_ID}"
-        self._attr_unique_id = f"{DOMAIN}_{SENSOR_LAMBDA_UNIQUE_ID}"
-        self._attr_name = SENSOR_LAMBDA_NAME
-        
-        # Basattribut
-        self._attr_native_value = lambda_manager.get_lambda()
-        
-        # Enhetsinformation
-        self._attr_device_info = DeviceInfo(
-            identifiers={(DOMAIN, DOMAIN)},
-            name="Fuktstyrning Dehumidifier Controller",
-            manufacturer="Fuktstyrning",
-            model="Smart Dehumidifier Control",
-        )
-
-    async def async_update(self) -> None:
-        """Update lambda value."""
-        self._attr_native_value = self.lambda_manager.get_lambda()
