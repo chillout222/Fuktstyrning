@@ -27,6 +27,7 @@ Configure the following entities in the integration setup:
 - Optional: Power sensor for the dehumidifier (e.g., `sensor.lumi_lumi_plug_maeu01_consumer_active_power`)
 - Optional: Energy consumption sensor (e.g., `sensor.lumi_lumi_plug_maeu01_summation_delivered`)
 - Optional: Voltage sensor (e.g., `sensor.lumi_lumi_plug_maeu01_rms_voltage`)
+- Optional: Lambda parameter to tune price sensitivity (default is `0.5`). This can be adjusted later under the integration's options.
 
 ## Energy Monitoring & Optimization
 The integration now includes advanced energy monitoring features:
