@@ -6,7 +6,6 @@ import json
 import os
 import asyncio
 import math
-import tempfile
 
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.event import async_track_time_interval
