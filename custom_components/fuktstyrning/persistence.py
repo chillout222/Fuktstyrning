@@ -18,18 +18,16 @@ class Persistence:
 
     async def load(self, controller):
         """Load persisted data into the controller learning module."""
-        data = await self.store.async_load()
-        if data is not None:
-            try:
-                controller.learning_module.data = data
-                _LOGGER.debug("Loaded learning data from storage.")
-            except Exception as e:
-                _LOGGER.error("Error loading persisted data: %s", e)
+        try:
+            await controller.learning_module.load_learning_data()
+            _LOGGER.debug("Loaded learning data from storage.")
+        except Exception as e:  # pylint: disable=broad-except
+            _LOGGER.error("Error loading persisted data: %s", e)
 
     async def save(self, controller):
         """Save controller learning data to storage."""
         try:
-            await self.store.async_save(controller.learning_module.data)
+            await controller.learning_module.save_learning_data()
             _LOGGER.debug("Saved learning data to storage.")
-        except Exception as e:
+        except Exception as e:  # pylint: disable=broad-except
             _LOGGER.error("Error saving learning data: %s", e)
