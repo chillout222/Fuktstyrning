@@ -20,7 +20,7 @@ A Home Assistant integration that controls a dehumidifier in a crawl space for m
 ## Configuration
 Configure the following entities in the integration setup:
 - Humidity sensor: `sensor.aqara_t1_innerst_luftfuktighet`
-- Electricity price sensor: `sensor.nordpool_kwh_se3_3_10_025`
+- Electricity price sensor: `sensor.nordpool_kwh_se3_sek_3_10_025` (other Nordpool sensors may also work)
 - Dehumidifier switch: Aqara Wall plug entity
 - Optional: SMHI weather forecast entity
 - Optional: Outdoor humidity and temperature sensors
