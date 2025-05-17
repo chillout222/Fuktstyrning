@@ -29,15 +29,12 @@ async def async_create_schedule_helpers(hass: HomeAssistant, entry_id: str, cont
             # Check if it already exists
             entity_id = f"input_boolean.{input_id}"
             if hass.states.get(entity_id) is None:
-                # Create it
-                await hass.services.async_call(
-                    input_boolean.DOMAIN,
-                    input_boolean.SERVICE_CREATE,
-                    {
-                        "name": hour_name,
-                        "icon": "mdi:clock-time-two-outline",
-                        "id": input_id,
-                    },
+                # Create it using the helper API
+                await input_boolean.async_create(
+                    hass,
+                    input_id,
+                    hour_name,
+                    icon="mdi:clock-time-two-outline",
                 )
             
             # Set the initial state
