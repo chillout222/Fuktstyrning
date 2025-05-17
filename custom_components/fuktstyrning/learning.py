@@ -66,6 +66,8 @@ class DehumidifierLearningModule:
         )
         self.min_data_points_for_update = 5
         self._unsub_interval = None
+        self.last_save_time = None
+        self.save_interval = timedelta(minutes=10)
         
         # -------------------------------------------------------
         # Peka mot gemensamma inlärnings-tabeller i controllern
