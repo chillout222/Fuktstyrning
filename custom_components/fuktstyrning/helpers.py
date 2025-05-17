@@ -3,7 +3,6 @@ import logging
 
 from homeassistant.const import EVENT_HOMEASSISTANT_START
 from homeassistant.helpers.event import async_track_state_change_event
-from homeassistant.helpers import entity_registry as er
 from homeassistant.core import HomeAssistant, callback, Event
 from homeassistant.components import input_boolean
 
