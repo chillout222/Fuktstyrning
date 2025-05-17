@@ -58,3 +58,12 @@ The system incorporates a self-learning model that continuously improves by:
 - A humidity sensor
 - A smart plug with power monitoring (such as Aqara Smart Plug)
 - Nordpool integration for electricity prices
+
+## Running Tests
+
+The unit tests rely on `pytest` and include lightweight stubs for the Home Assistant APIs. Install pytest and run the tests with:
+
+```bash
+pip install pytest
+pytest
+```
