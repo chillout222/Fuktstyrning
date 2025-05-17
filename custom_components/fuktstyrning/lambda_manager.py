@@ -8,10 +8,9 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 import homeassistant.util.dt as dt_util
 
-from .const import DOMAIN
+from .const import DOMAIN, LAMBDA_STORAGE_KEY
 
 _LOGGER = logging.getLogger(__name__)
-LAMBDA_STORAGE_KEY = "fuktstyrning_lambda"
 SENSOR_LAMBDA_UNIQUE_ID = "lambda_parameter"
 SENSOR_LAMBDA_NAME = "Dehumidifier Lambda"
 
