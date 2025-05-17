@@ -58,3 +58,99 @@ The system incorporates a self-learning model that continuously improves by:
 - A humidity sensor
 - A smart plug with power monitoring (such as Aqara Smart Plug)
 - Nordpool integration for electricity prices
+
+## Services
+
+The integration exposes several custom services that can be used in
+automations. The target entity should normally be the smart control switch or
+one of the sensors created by the integration.
+
+| Service | Description |
+| ------- | ----------- |
+| `fuktstyrning.update_schedule` | Force regeneration of the daily schedule |
+| `fuktstyrning.reset_cost_savings` | Reset the cost saving counter to zero |
+| `fuktstyrning.set_max_humidity` | Temporarily change the maximum humidity threshold |
+| `fuktstyrning.learning_reset` | Clear all stored learning data |
+
+Example service calls:
+
+```yaml
+# Rebuild today's schedule
+service: fuktstyrning.update_schedule
+target:
+  entity_id: switch.dehumidifier_smart_control
+
+# Reset savings counter
+service: fuktstyrning.reset_cost_savings
+target:
+  entity_id: sensor.dehumidifier_cost_savings
+
+# Override humidity limit to 75%
+service: fuktstyrning.set_max_humidity
+data:
+  max_humidity: 75
+target:
+  entity_id: switch.dehumidifier_smart_control
+
+# Reset the learning module for all controllers
+service: fuktstyrning.learning_reset
+```
+
+### Resetting the learning module
+
+Calling `fuktstyrning.learning_reset` removes all accumulated statistics and
+model data. If multiple controllers are configured an optional `entry_id` can be
+passed to only reset one instance.
+
+### Adjusting lambda values
+
+The cost optimisation factor λ is exposed as `sensor.dehumidifier_lambda`. It is
+automatically adjusted once a week based on humidity events. If you want to
+manually tune it you can create a small [Python script](https://www.home-assistant.io/docs/scripts/python_script/)
+that calls `lambda_manager.set_lambda()` on the controller instance. A value
+around `0.5` is typically balanced between humidity and cost.
+
+## Example automations
+
+Below are short examples showing how the services can be invoked from a Home
+Assistant automation.
+
+```yaml
+- alias: Update dehumidifier schedule at 13:05
+  trigger:
+    platform: time
+    at: "13:05"
+  action:
+    service: fuktstyrning.update_schedule
+    target:
+      entity_id: switch.dehumidifier_smart_control
+
+- alias: Monthly reset of cost statistics
+  trigger:
+    platform: time
+    at: "00:00:00"
+    day: 1
+  action:
+    service: fuktstyrning.reset_cost_savings
+    target:
+      entity_id: sensor.dehumidifier_cost_savings
+
+- alias: Temporary humidity boost
+  trigger:
+    platform: state
+    entity_id: sensor.outdoor_humidity
+    to: ">= 90"
+  action:
+    service: fuktstyrning.set_max_humidity
+    data:
+      max_humidity: 80
+    target:
+      entity_id: switch.dehumidifier_smart_control
+
+- alias: Clear learning data on demand
+  trigger:
+    platform: event
+    event_type: RESET_LEARNING
+  action:
+    service: fuktstyrning.learning_reset
+```
