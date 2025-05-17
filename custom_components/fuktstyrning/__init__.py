@@ -1,9 +1,9 @@
 """The Fuktstyrning integration."""
 import logging
-from homeassistant.core import HomeAssistant, ServiceCall
+from homeassistant.core import HomeAssistant
 from homeassistant.config_entries import ConfigEntry
 
-from .const import DOMAIN, PLATFORMS, SERVICE_LEARNING_RESET
+from .const import DOMAIN, PLATFORMS
 from .controller import FuktstyrningController
 from .scheduler import Scheduler
 from .persistence import Persistence
@@ -43,34 +43,8 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Attach scheduler for shutdown
     controller.scheduler = scheduler
 
-    # 6) Registrera custom services + learning_reset
+    # 6) Registrera custom services
     await async_register_services(hass, entry, controller)
-
-    async def _async_learning_reset(call):
-        """Handle fuktstyrning.learning_reset."""
-        try:
-            target_id = call.data.get("entry_id")
-            
-            if target_id:
-                # Kontrollera att entry_id finns
-                if target_id not in hass.data[DOMAIN]:
-                    _LOGGER.error("Invalid entry_id: %s", target_id)
-                    return
-                ctrls = [hass.data[DOMAIN][target_id]["controller"]]
-            else:
-                ctrls = [v["controller"] for v in hass.data[DOMAIN].values()]
-                
-            for ctrl in filter(None, ctrls):
-                await ctrl.learning_module.async_reset()
-                _LOGGER.warning("Learning module reset for %s", ctrl.entry_id)
-        except Exception as e:
-            _LOGGER.error("Error during learning reset: %s", str(e))
-
-    hass.services.async_register(
-        DOMAIN,
-        SERVICE_LEARNING_RESET,
-        _async_learning_reset,
-    )
 
     return True
 
