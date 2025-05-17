@@ -155,3 +155,12 @@ Assistant automation.
   action:
     service: fuktstyrning.learning_reset
 ```
+
+## Development & Testing
+
+Install the test dependencies and run the test suite with:
+
+```bash
+pip install -r requirements-dev.txt
+pytest
+```
