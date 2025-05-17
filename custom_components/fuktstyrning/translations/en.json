@@ -9,6 +9,12 @@
           "price_sensor": "Electricity Price Sensor",
           "dehumidifier_switch": "Dehumidifier Switch",
           "weather_entity": "Weather Entity (optional)",
+          "outdoor_humidity_sensor": "Outdoor Humidity Sensor (optional)",
+          "outdoor_temp_sensor": "Outdoor Temperature Sensor (optional)",
+          "power_sensor": "Power Sensor (optional)",
+          "energy_sensor": "Energy Sensor (optional)",
+          "voltage_sensor": "Voltage Sensor (optional)",
+          "lambda_default": "Lambda Parameter (SEK/kWh)",
           "max_humidity": "Maximum Humidity Threshold (%)"
         }
       }
@@ -28,7 +34,13 @@
         "description": "Adjust dehumidifier controller settings",
         "data": {
           "max_humidity": "Maximum Humidity Threshold (%)",
-          "weather_entity": "Weather Entity (optional)"
+          "lambda_default": "Lambda Parameter (SEK/kWh)",
+          "weather_entity": "Weather Entity (optional)",
+          "outdoor_humidity_sensor": "Outdoor Humidity Sensor (optional)",
+          "outdoor_temp_sensor": "Outdoor Temperature Sensor (optional)",
+          "power_sensor": "Power Sensor (optional)",
+          "energy_sensor": "Energy Sensor (optional)",
+          "voltage_sensor": "Voltage Sensor (optional)"
         }
       }
     }

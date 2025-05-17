@@ -9,6 +9,12 @@
           "price_sensor": "Elpris-sensor",
           "dehumidifier_switch": "Avfuktarens strömbrytare",
           "weather_entity": "Väderentitet (valfritt)",
+          "outdoor_humidity_sensor": "Utomhusfuktighetssensor (valfritt)",
+          "outdoor_temp_sensor": "Utomhustemperatursensor (valfritt)",
+          "power_sensor": "Effektsensor (valfritt)",
+          "energy_sensor": "Energisensor (valfritt)",
+          "voltage_sensor": "Spänningssensor (valfritt)",
+          "lambda_default": "Lambda-parameter (SEK/kWh)",
           "max_humidity": "Maximal fuktighetsgräns (%)"
         }
       }
@@ -28,7 +34,13 @@
         "description": "Justera avfuktarens kontrollinställningar",
         "data": {
           "max_humidity": "Maximal fuktighetsgräns (%)",
-          "weather_entity": "Väderentitet (valfritt)"
+          "lambda_default": "Lambda-parameter (SEK/kWh)",
+          "weather_entity": "Väderentitet (valfritt)",
+          "outdoor_humidity_sensor": "Utomhusfuktighetssensor (valfritt)",
+          "outdoor_temp_sensor": "Utomhustemperatursensor (valfritt)",
+          "power_sensor": "Effektsensor (valfritt)",
+          "energy_sensor": "Energisensor (valfritt)",
+          "voltage_sensor": "Spänningssensor (valfritt)"
         }
       }
     }
