@@ -355,7 +355,11 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
     # ------------------------------------------------------------------
 
     async def _update_cost_savings(self) -> None:
-        forecast = self._get_price_forecast()
+        try:
+            forecast = self._get_price_forecast()
+        except UpdateFailed as err:
+            _LOGGER.warning("Price forecast unavailable (%s), skipping cost update", err)
+            return
         if not forecast:
             return
         baseline_price = sum(forecast) / len(forecast)
