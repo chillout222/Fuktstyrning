@@ -219,6 +219,20 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
             out_rh = self.hass.states.get(self.outdoor_humidity_sensor)
             out_t = self.hass.states.get(self.outdoor_temp_sensor)
 
+            outdoor_humidity = None
+            if out_rh and out_rh.state not in ("unknown", "unavailable", None):
+                try:
+                    outdoor_humidity = float(out_rh.state)
+                except ValueError:
+                    outdoor_humidity = None
+
+            outdoor_temp = None
+            if out_t and out_t.state not in ("unknown", "unavailable", None):
+                try:
+                    outdoor_temp = float(out_t.state)
+                except ValueError:
+                    outdoor_temp = None
+
             # Temperatur från inomhus-sensorn (om attribut finns)
             temperature = None
             humidity_state = self.hass.states.get(self.humidity_sensor)
@@ -261,8 +275,8 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
                 dehumidifier_on=is_on,
                 temperature=temperature,
                 weather=weather,
-                outdoor_humidity=float(out_rh.state) if out_rh else None,
-                outdoor_temp=float(out_t.state) if out_t else None,
+                outdoor_humidity=outdoor_humidity,
+                outdoor_temp=outdoor_temp,
                 power=power,
                 energy=energy,
             )
@@ -293,7 +307,11 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
         if sensor_state is None or sensor_state.state in (STATE_UNKNOWN, STATE_UNAVAILABLE):
             raise ConfigEntryNotReady(f"Humidity sensor {self.humidity_sensor} not ready yet")
         # Hämta aktuell fuktighet och modellparametrar
-        current_humidity = float(sensor_state.state)
+        try:
+            current_humidity = float(sensor_state.state)
+        except ValueError:
+            _LOGGER.warning("Invalid humidity value for sensor %s: %s", self.humidity_sensor, sensor_state.state)
+            return
 
         # Läs temperatur och väder
         temp_state = self.hass.states.get(self.outdoor_temp_sensor)
