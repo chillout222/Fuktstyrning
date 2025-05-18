@@ -11,6 +11,8 @@ import math
 from datetime import datetime, timedelta, time
 from typing import Any, Dict, List, Optional
 
+from homeassistant.helpers.update_coordinator import UpdateFailed
+
 from homeassistant.components.sensor import (
     SensorEntity,
     SensorDeviceClass,
@@ -112,7 +114,12 @@ class CostSavingsSensor(SensorEntity):
     async def async_update(self) -> None:  # type: ignore[override]
         self._attr_native_value = self.controller.cost_savings
 
-        price_forecast: List[float] | None = self.controller._get_price_forecast()  # noqa: SLF001
+        try:
+            price_forecast: List[float] | None = self.controller._get_price_forecast()  # noqa: SLF001
+        except UpdateFailed as err:
+            _LOGGER.warning("Price forecast unavailable: %s", err)
+            price_forecast = None
+
         optimal_price: float | None = min(price_forecast) if price_forecast else None
 
         price_state = self.hass.states.get(self.controller.price_sensor)
