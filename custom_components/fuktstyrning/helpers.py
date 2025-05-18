@@ -29,13 +29,25 @@ async def async_create_schedule_helpers(hass: HomeAssistant, entry_id: str, cont
             # Check if it already exists
             entity_id = f"input_boolean.{input_id}"
             if hass.states.get(entity_id) is None:
-                # Create it using the helper API
-                await input_boolean.async_create(
-                    hass,
-                    input_id,
-                    hour_name,
-                    icon="mdi:clock-time-two-outline",
-                )
+                # Create using helper API when available (>=2024.4)
+                if hasattr(input_boolean, "async_create"):
+                    await input_boolean.async_create(
+                        hass,
+                        input_id,
+                        hour_name,
+                        icon="mdi:clock-time-two-outline",
+                    )
+                else:
+                    # Fall back to service call for older Home Assistant
+                    await hass.services.async_call(
+                        input_boolean.DOMAIN,
+                        "create",
+                        {
+                            "object_id": input_id,
+                            "name": hour_name,
+                            "icon": "mdi:clock-time-two-outline",
+                        },
+                    )
             
             # Set the initial state
             service = "turn_on" if state else "turn_off"
