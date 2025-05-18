@@ -74,12 +74,22 @@ class OptimalRunningBinarySensor(BinarySensorEntity):
         # Get current price and average price
         price_sensor = self.hass.states.get(self.controller.price_sensor)
         if price_sensor and "today" in price_sensor.attributes:
-            current_price = float(price_sensor.state)
-            today_prices = price_sensor.attributes.get("today", [])
-            if today_prices:
-                avg_price = sum(today_prices) / len(today_prices)
-                self._attr_extra_state_attributes.update({
-                    "current_hour_price": current_price,
-                    "average_price_today": avg_price,
-                    "is_below_average": current_price < avg_price,
-                })
+            current_price = None
+            if price_sensor.state not in ("unknown", "unavailable", None):
+                try:
+                    current_price = float(price_sensor.state)
+                except ValueError:
+                    current_price = None
+            if current_price is not None:
+                today_prices = price_sensor.attributes.get("today", [])
+                if today_prices:
+                    avg_price = sum(today_prices) / len(today_prices)
+                    self._attr_extra_state_attributes.update({
+                        "current_hour_price": current_price,
+                        "average_price_today": avg_price,
+                        "is_below_average": current_price < avg_price,
+                    })
+            else:
+                self._attr_extra_state_attributes.pop("current_hour_price", None)
+                self._attr_extra_state_attributes.pop("average_price_today", None)
+                self._attr_extra_state_attributes.pop("is_below_average", None)
