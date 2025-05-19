@@ -13,7 +13,14 @@ from homeassistant.helpers.json import JSONEncoder
 from homeassistant.helpers.storage import Store
 from homeassistant.util import dt as dt_util
 
-from .const import DOMAIN, LEARNING_STORAGE_KEY, DEFAULT_LAMBDA
+from .const import (
+    DOMAIN,
+    LEARNING_STORAGE_KEY,
+    DEFAULT_LAMBDA,
+    DEFAULT_TIME_TO_REDUCE,
+    DEFAULT_TIME_TO_INCREASE,
+    DEFAULT_REDUCTION_MINUTES,
+)
 
 try:
     import aiofiles
@@ -142,8 +149,10 @@ class DehumidifierLearningModule:
             _LOGGER.error("Failed to decode stored learning JSON: %s", exc)
         except FileNotFoundError:
             _LOGGER.info("No stored learning data file found, starting fresh.")
+        except OSError as exc:
+            _LOGGER.error("File operation error during learning module initialization: %s", exc)
         except Exception as exc:  # pylint: disable=broad-except
-            _LOGGER.exception("Unexpected error initializing learning module")
+            _LOGGER.exception("Unexpected error initializing learning module: %s", exc)
             raise
 
     async def shutdown(self):
@@ -174,8 +183,10 @@ class DehumidifierLearningModule:
             _LOGGER.error("Failed to decode humidity data JSON: %s", exc)
         except FileNotFoundError:
             _LOGGER.info("Humidity data file not found, skipping.")
-        except Exception as exc:  # pylint: disable=broad-except
-            _LOGGER.exception("Unexpected error loading humidity data")
+        except OSError as exc:
+            _LOGGER.error("File operation error loading humidity data: %s", exc)
+        except Exception as exc: # Keep a general fallback for truly unexpected issues
+            _LOGGER.exception("Unexpected error loading humidity data: %s", exc)
             raise
 
     async def _save_humidity_data(self):
@@ -206,10 +217,10 @@ class DehumidifierLearningModule:
                 
             self.last_save_time = now
             _LOGGER.debug("Saved %d humidity data points", len(self.humidity_data))
-        except (OSError, IOError) as exc:  # pylint: disable=broad-except
+        except OSError as exc:  # OSError is base for IOError
             _LOGGER.error("Failed to save humidity data: %s", exc)
-        except Exception as exc:  # pylint: disable=broad-except
-            _LOGGER.exception("Unexpected error saving humidity data")
+        except Exception as exc:  # Keep a general fallback for truly unexpected issues
+            _LOGGER.exception("Unexpected error saving humidity data: %s", exc)
             raise
 
     async def load_learning_data(self):
@@ -240,8 +251,10 @@ class DehumidifierLearningModule:
             _LOGGER.error("Failed to decode learning data JSON: %s", exc)
         except FileNotFoundError:
             _LOGGER.info("Learning data not found in store, starting fresh.")
-        except Exception as exc:  # pylint: disable=broad-except
-            _LOGGER.exception("Unexpected error loading learning data")
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as exc:
+            _LOGGER.error("Error processing learning data: %s", exc)
+        except Exception as exc: # Keep a general fallback for truly unexpected issues
+            _LOGGER.exception("Unexpected error loading learning data: %s", exc)
             raise
 
     async def save_learning_data(self):
@@ -262,11 +275,11 @@ class DehumidifierLearningModule:
             _LOGGER.debug("Saved learning data to store")
         except (TypeError, ValueError) as exc:
             _LOGGER.error("Failed to serialize learning data: %s", exc)
-        except Exception as exc:  # pylint: disable=broad-except
-            _LOGGER.exception("Unexpected error saving learning data")
+        except Exception as exc: # Keep a general fallback for truly unexpected issues
+            _LOGGER.exception("Unexpected error saving learning data: %s", exc)
             raise
 
-    def record_humidity_data(self, humidity, dehumidifier_on, temperature=None, weather=None, 
+    def record_humidity_data(self, humidity, dehumidifier_on, temperature=None, weather=None,
                            outdoor_humidity=None, outdoor_temp=None, power=None, energy=None):
         """Record current humidity data with context."""
         now = datetime.now()
@@ -325,7 +338,7 @@ class DehumidifierLearningModule:
             # Check if we have any data at all
             if not time_to_reduce_data:
                 _LOGGER.debug("No time_to_reduce data available, using default rate")
-                minutes = 30  # Default to 30 min (2%/hour) if no data
+                minutes = DEFAULT_REDUCTION_MINUTES
             else:
                 # Try exact match
                 key = f"{rounded_humidity}_to_{rounded_humidity-1}"
@@ -355,16 +368,16 @@ class DehumidifierLearningModule:
                                      key, minutes, closest_key)
                     else:
                         # No nearby keys, use default
-                        minutes = 30
+                        minutes = DEFAULT_REDUCTION_MINUTES
                         _LOGGER.debug("No nearby reduction time found for %s, using default", key)
                         
                 # Validate value
                 if not isinstance(minutes, (int, float)) or minutes <= 0:
-                    _LOGGER.warning("Invalid reduction time: %s", minutes)
-                    minutes = 30
+                    _LOGGER.warning("Invalid reduction time: %s, using default", minutes)
+                    minutes = DEFAULT_REDUCTION_MINUTES
         except (KeyError, TypeError, ValueError) as exc:
-            _LOGGER.warning("Error in reduction time lookup: %s", exc)
-            minutes = 30
+            _LOGGER.warning("Error in reduction time lookup: %s, using default", exc)
+            minutes = DEFAULT_REDUCTION_MINUTES
             
         rate = 60 / minutes  # Convert minutes per % to % per hour
         
@@ -391,20 +404,22 @@ class DehumidifierLearningModule:
                 
         return max(0.5, rate)  # Ensure minimum rate of 0.5%/hour
 
-    def predict_hours_needed(
-        self,
-        current_humidity: float,
-        target_humidity: float,
-        temperature: float = None,
-        weather: str = None,
-    ) -> int:
-        """Returnera antal timmar avfuktaren behöver vara på för att nå target_humidity."""
-        diff = current_humidity - target_humidity
-        if diff <= 0:
-            return 0
-        rate = self.predict_reduction_rate(current_humidity, temperature, weather)
-        hours = math.ceil(diff / rate) if rate > 0 else 0
-        return max(2, min(hours, 24))
+    # TODO: Check if this method is used externally or can be removed.
+    # The scheduler has its own version.
+    # def predict_hours_needed(
+    #     self,
+    #     current_humidity: float,
+    #     target_humidity: float,
+    #     temperature: float = None,
+    #     weather: str = None,
+    # ) -> int:
+    #     """Returnera antal timmar avfuktaren behöver vara på för att nå target_humidity."""
+    #     diff = current_humidity - target_humidity
+    #     if diff <= 0:
+    #         return 0
+    #     rate = self.predict_reduction_rate(current_humidity, temperature, weather)
+    #     hours = math.ceil(diff / rate) if rate > 0 else 0
+    #     return max(2, min(hours, 24))
 
     def _calculate_absolute_humidity(self, relative_humidity, temperature):
         """Calculate absolute humidity in g/m3 from relative humidity and temperature."""
@@ -497,8 +512,10 @@ class DehumidifierLearningModule:
         try:
             await self.save_learning_data()
             _LOGGER.debug("Learning data saved after analysis")
-        except Exception as exc:  # pylint: disable=broad-except
-            _LOGGER.exception("Unexpected error saving learning data after analysis")
+        except (TypeError, ValueError) as exc:
+            _LOGGER.error("Failed to serialize learning data after analysis: %s", exc)
+        except Exception as exc: # Keep a general fallback for truly unexpected issues
+            _LOGGER.exception("Unexpected error saving learning data after analysis: %s", exc)
             raise
 
     def _analyze_humidity_reduction(self):
@@ -1035,9 +1052,9 @@ class DehumidifierLearningModule:
         if "energy_efficiency" in self.controller.dehumidifier_data:
             self.controller.dehumidifier_data["energy_efficiency"] = {}
             
-        # Initiera med standardvärden
-        self.time_to_reduce.update({"70_to_65": 30, "65_to_60": 45})
-        self.time_to_increase.update({"60_to_65": 15, "65_to_70": 24.1})
+        # Initiera med standardvärden från const.py
+        self.time_to_reduce.update(DEFAULT_TIME_TO_REDUCE)
+        self.time_to_increase.update(DEFAULT_TIME_TO_INCREASE)
         
         # Spara den återställda datan
         await self.save_learning_data()

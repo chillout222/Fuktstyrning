@@ -8,7 +8,21 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 import homeassistant.util.dt as dt_util
 
-from .const import DOMAIN, LAMBDA_STORAGE_KEY
+from .const import (
+    DOMAIN,
+    LAMBDA_STORAGE_KEY,
+    DEFAULT_LAMBDA_VALUE,
+    MIN_INITIAL_LAMBDA_THRESHOLD,
+    LAMBDA_CLAMP_MIN_VALUE,
+    LAMBDA_CLAMP_INITIAL_FACTOR_MIN,
+    LAMBDA_CLAMP_INITIAL_FACTOR_MAX,
+    DAYS_IN_WEEK,
+    MIN_DATA_POINTS_FOR_LAMBDA_ADJUST,
+    LAMBDA_ADJUST_HUMIDITY_HYSTERESIS,
+    LAMBDA_ADJUST_OVERFLOW_THRESHOLD,
+    LAMBDA_ADJUST_INCREASE_FACTOR,
+    LAMBDA_ADJUST_DECREASE_FACTOR,
+)
 
 _LOGGER = logging.getLogger(__name__)
 SENSOR_LAMBDA_UNIQUE_ID = "lambda_parameter"
@@ -21,8 +35,8 @@ class LambdaManager:
 
     def __init__(self):
         """Initialize the lambda manager."""
-        self._lambda = 0.5  # Default value
-        self._initial_lambda = 0.5  # Startvärde att jämföra med
+        self._lambda = DEFAULT_LAMBDA_VALUE
+        self._initial_lambda = DEFAULT_LAMBDA_VALUE
         self._store = None
         self._events = []
         self._lambda_sensor = None
@@ -46,7 +60,7 @@ class LambdaManager:
         stored_data = await self._store.async_load()
         
         if stored_data:
-            self._lambda = stored_data.get("lambda", 0.5)
+            self._lambda = stored_data.get("lambda", DEFAULT_LAMBDA_VALUE)
             self._initial_lambda = stored_data.get("initial_lambda", self._lambda)
             self._events = stored_data.get("events", [])
             self._max_humidity_window = stored_data.get("max_humidity_window", [])
@@ -54,7 +68,7 @@ class LambdaManager:
         else:
             # Om inget sparat, använd medelpris eller default
             # Hantera 0.0 som "använd default"
-            if initial_lambda is not None and initial_lambda > 0.01:  # Undvik för små värden
+            if initial_lambda is not None and initial_lambda > MIN_INITIAL_LAMBDA_THRESHOLD:  # Undvik för små värden
                 self._lambda = initial_lambda
                 self._initial_lambda = initial_lambda
             else:
@@ -86,8 +100,9 @@ class LambdaManager:
         async with self._lock:  # Prevent race conditions
             if value != self._lambda:
                 # Förhindra 0-division eller för små värden genom att sätta minimum
-                min_lambda = max(0.1, self._initial_lambda * 0.1) if self._initial_lambda > 0 else 0.1
-                self._lambda = max(min_lambda, min(self._initial_lambda * 5.0, value))
+                min_lambda_val = self._initial_lambda * LAMBDA_CLAMP_INITIAL_FACTOR_MIN if self._initial_lambda > 0 else LAMBDA_CLAMP_MIN_VALUE
+                min_lambda = max(LAMBDA_CLAMP_MIN_VALUE, min_lambda_val)
+                self._lambda = max(min_lambda, min(self._initial_lambda * LAMBDA_CLAMP_INITIAL_FACTOR_MAX, value))
                 _LOGGER.info("Lambda uppdaterad till %.3f", self._lambda)
                 
                 # Uppdatera state direkt
@@ -102,8 +117,8 @@ class LambdaManager:
             now = dt_util.now()
             self._events.append({"timestamp": now.isoformat(), "overflow": overflow})
             
-            # Rensa gamla events (äldre än 7 dagar)
-            week_ago = now - timedelta(days=7)
+            # Rensa gamla events (äldre än DAYS_IN_WEEK dagar)
+            week_ago = now - timedelta(days=DAYS_IN_WEEK)
             self._events = [e for e in self._events 
                             if datetime.fromisoformat(e["timestamp"]) >= week_ago]
             
@@ -123,32 +138,32 @@ class LambdaManager:
                 "max": max_humidity
             })
             
-            # Rensa gamla mätningar (äldre än 7 dagar)
-            week_ago = now - timedelta(days=7)
+            # Rensa gamla mätningar (äldre än DAYS_IN_WEEK dagar)
+            week_ago = now - timedelta(days=DAYS_IN_WEEK)
             self._max_humidity_window = [m for m in self._max_humidity_window 
                                         if datetime.fromisoformat(m["timestamp"]) >= week_ago]
         
     async def weekly_adjust(self) -> None:
         """Adjust lambda value based on weekly data."""
         now = dt_util.now()
-        week_ago = now - timedelta(days=7)
+        week_ago = now - timedelta(days=DAYS_IN_WEEK)
         
         # Räkna overflow events senaste veckan
         overflow_count = sum(1 for e in self._events 
                              if e["overflow"] and datetime.fromisoformat(e["timestamp"]) >= week_ago)
         
         # Kontrollera om det finns tillräckligt med data
-        if len(self._max_humidity_window) < 24:
+        if len(self._max_humidity_window) < MIN_DATA_POINTS_FOR_LAMBDA_ADJUST:
             _LOGGER.info(
-                "För lite data för att justera lambda (%d mätningar). Behåller %.3f", 
-                len(self._max_humidity_window), self._lambda
+                "För lite data för att justera lambda (%d mätningar, behöver %d). Behåller %.3f", 
+                len(self._max_humidity_window), MIN_DATA_POINTS_FOR_LAMBDA_ADJUST, self._lambda
             )
             return
         
-        # Kontrollera om RH alltid varit under target-3%
+        # Kontrollera om RH alltid varit under target - LAMBDA_ADJUST_HUMIDITY_HYSTERESIS %
         always_safe = True
         for m in self._max_humidity_window:
-            if m["humidity"] > (m["max"] - 3.0):
+            if m["humidity"] > (m["max"] - LAMBDA_ADJUST_HUMIDITY_HYSTERESIS):
                 always_safe = False
                 break
                 
@@ -156,15 +171,15 @@ class LambdaManager:
         new_lambda = self._lambda
         adjustment_needed = False
         
-        if overflow_count >= 3:
+        if overflow_count >= LAMBDA_ADJUST_OVERFLOW_THRESHOLD:
             # För många överflöden - öka lambda för att prioritera fuktreducering
-            new_lambda = self._lambda * 1.1
-            _LOGGER.info("Ökar lambda med 10%% pga %d överflöden senaste veckan", overflow_count)
+            new_lambda = self._lambda * LAMBDA_ADJUST_INCREASE_FACTOR
+            _LOGGER.info("Ökar lambda med %.0f%% pga %d överflöden senaste veckan", (LAMBDA_ADJUST_INCREASE_FACTOR-1)*100, overflow_count)
             adjustment_needed = True
         elif always_safe:
             # Alltid säkert - minska lambda för att spara pengar
-            new_lambda = self._lambda * 0.9
-            _LOGGER.info("Minskar lambda med 10%% pga att RH alltid varit under (max-3%%)") 
+            new_lambda = self._lambda * LAMBDA_ADJUST_DECREASE_FACTOR
+            _LOGGER.info("Minskar lambda med %.0f%% pga att RH alltid varit under (max-%.1f%%)", (1-LAMBDA_ADJUST_DECREASE_FACTOR)*100, LAMBDA_ADJUST_HUMIDITY_HYSTERESIS) 
             adjustment_needed = True
         else:
             _LOGGER.info(

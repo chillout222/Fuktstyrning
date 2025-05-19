@@ -276,8 +276,10 @@ class LearningModelSensor(SensorEntity):
                 "temp_impact": model_data.get("temp_impact"),
             }
             self._attr_native_value = f"{model_data.get('data_points', 0)} pts"
+        except KeyError as exc:
+            _LOGGER.error("LearningModelSensor update error due to missing key: %s", exc)
         except Exception as exc:  # pylint: disable=broad-except
-            _LOGGER.error("LearningModelSensor update error: %s", exc)
+            _LOGGER.error("Unexpected error updating LearningModelSensor: %s", exc)
 
 
 # -----------------------------------------------------------------------------
@@ -344,8 +346,10 @@ class DewPointSensor(SensorEntity):
             dew_point = (beta * gamma) / (alpha - gamma)
             
             self._attr_native_value = round(dew_point, 1)
+        except (ValueError, TypeError, ZeroDivisionError) as exc:
+            _LOGGER.error("DewPointSensor calculation error: %s", exc)
         except Exception as exc:  # pylint: disable=broad-except
-            _LOGGER.error("DewPointSensor update error: %s", exc)
+            _LOGGER.error("Unexpected error updating DewPointSensor: %s", exc)
 
 
 # -----------------------------------------------------------------------------
@@ -413,8 +417,10 @@ class PowerSensor(SensorEntity):
                     except ValueError:
                         pass
                 
-        except Exception as exc:  # pylint: disable=broad-except
+        except (ValueError, TypeError, KeyError) as exc:
             _LOGGER.error("PowerSensor update error: %s", exc)
+        except Exception as exc:  # pylint: disable=broad-except
+            _LOGGER.error("Unexpected error updating PowerSensor: %s", exc)
 
 
 # -----------------------------------------------------------------------------
