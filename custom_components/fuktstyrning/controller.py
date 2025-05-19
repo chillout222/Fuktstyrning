@@ -42,6 +42,8 @@ from .const import (
     CONF_MAX_HUMIDITY,
     DEFAULT_MAX_HUMIDITY,
     CONTROLLER_STORAGE_KEY,
+    DEFAULT_TIME_TO_REDUCE,
+    DEFAULT_TIME_TO_INCREASE,
 )
 
 _LOGGER = logging.getLogger(__name__)
@@ -82,8 +84,8 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
 
         # simple defaults for learning
         self.dehumidifier_data: Dict[str, Any] = {
-            "time_to_reduce": {"70_to_65": 30, "65_to_60": 45},
-            "time_to_increase": {"60_to_65": 15, "65_to_70": 30},
+            "time_to_reduce": DEFAULT_TIME_TO_REDUCE.copy(),
+            "time_to_increase": DEFAULT_TIME_TO_INCREASE.copy(),
         }
         
         # Learning module gets reference to controller so it can read data
@@ -130,8 +132,10 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
                 if price_forecast:
                     avg_price = sum(price_forecast) / len(price_forecast)
                     _LOGGER.debug("Medelpris idag: %.3f SEK/kWh", avg_price)
-            except Exception as e:
-                _LOGGER.warning("Kunde inte beräkna medelpris: %s", e)
+            except ZeroDivisionError as e:
+                _LOGGER.warning("Kunde inte beräkna medelpris (ZeroDivisionError): %s", e)
+            except Exception as e: # Keep a general exception handler for other unexpected errors
+                _LOGGER.warning("Oväntat fel vid beräkning av medelpris: %s", e)
         
         await self.lambda_manager.async_init(self.hass, avg_price)
         
@@ -280,8 +284,10 @@ class FuktstyrningController:  # pylint: disable=too-many-instance-attributes
                 power=power,
                 energy=energy,
             )
+        except (TypeError, ValueError, AttributeError) as exc:
+            _LOGGER.error("Error recording humidity data (specific error: %s): %s", type(exc).__name__, exc)
         except Exception as exc:  # pylint: disable=broad-except
-            _LOGGER.error("Error recording humidity data: %s", exc)
+            _LOGGER.error("Unexpected error recording humidity data: %s", exc)
 
         if current_humidity >= self.max_humidity and not self.override_active:
             await self._turn_on_dehumidifier()

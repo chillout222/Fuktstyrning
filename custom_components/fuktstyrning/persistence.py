@@ -16,13 +16,17 @@ class Persistence:
         try:
             await controller.learning_module.load_learning_data()
             _LOGGER.debug("Loaded learning data from storage.")
+        except (json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
+            _LOGGER.error("Error processing persisted data during load: %s", e)
         except Exception as e:  # pylint: disable=broad-except
-            _LOGGER.error("Error loading persisted data: %s", e)
+            _LOGGER.error("Unexpected error loading persisted data: %s", e)
 
     async def save(self, controller):
         """Delegate saving to ``controller.learning_module``."""
         try:
             await controller.learning_module.save_learning_data()
             _LOGGER.debug("Saved learning data to storage.")
+        except (TypeError, ValueError) as e:
+            _LOGGER.error("Error serializing learning data for saving: %s", e)
         except Exception as e:  # pylint: disable=broad-except
-            _LOGGER.error("Error saving learning data: %s", e)
+            _LOGGER.error("Unexpected error saving learning data: %s", e)
